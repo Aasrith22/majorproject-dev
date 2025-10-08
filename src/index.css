@@ -1,0 +1,159 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 220 25% 7%;
+    --foreground: 210 40% 98%;
+
+    --card: 220 20% 12%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 220 20% 12%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 263 70% 62%;
+    --primary-foreground: 210 40% 98%;
+    
+    --secondary: 189 94% 43%;
+    --secondary-foreground: 220 25% 7%;
+
+    --muted: 220 15% 20%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 263 90% 75%;
+    --accent-foreground: 220 25% 7%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 15% 25%;
+    --input: 220 15% 25%;
+    --ring: 263 70% 62%;
+
+    --radius: 1rem;
+    
+    /* Custom tokens for EduSynapse */
+    --gradient-primary: linear-gradient(135deg, hsl(263 70% 62%) 0%, hsl(263 90% 75%) 100%);
+    --gradient-accent: linear-gradient(135deg, hsl(189 94% 43%) 0%, hsl(263 70% 62%) 100%);
+    --gradient-hero: linear-gradient(180deg, hsl(220 25% 7%) 0%, hsl(263 40% 15%) 100%);
+    --glow-primary: 0 0 40px hsl(263 70% 62% / 0.3);
+    --glow-accent: 0 0 30px hsl(189 94% 43% / 0.4);
+    --transition-smooth: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .dark {
+    --background: 220 25% 7%;
+    --foreground: 210 40% 98%;
+
+    --card: 220 20% 12%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 220 20% 12%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 263 70% 62%;
+    --primary-foreground: 210 40% 98%;
+    
+    --secondary: 189 94% 43%;
+    --secondary-foreground: 220 25% 7%;
+
+    --muted: 220 15% 20%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 263 90% 75%;
+    --accent-foreground: 220 25% 7%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 15% 25%;
+    --input: 220 15% 25%;
+    --ring: 263 70% 62%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground overflow-x-hidden;
+  }
+}
+
+@layer utilities {
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  
+  .animate-float-delayed {
+    animation: float 6s ease-in-out 2s infinite;
+  }
+  
+  .animate-glow {
+    animation: glow 3s ease-in-out infinite;
+  }
+  
+  .animate-slide-up {
+    animation: slide-up 0.8s ease-out forwards;
+  }
+  
+  .animate-slide-in-right {
+    animation: slide-in-right 0.6s ease-out forwards;
+  }
+  
+  .glass-card {
+    @apply bg-card/40 backdrop-blur-xl border border-border/50;
+  }
+  
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary via-accent to-secondary bg-clip-text text-transparent;
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-20px) rotate(2deg);
+  }
+}
+
+@keyframes glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 20px hsl(263 70% 62% / 0.3));
+  }
+  50% {
+    filter: drop-shadow(0 0 40px hsl(263 70% 62% / 0.6));
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
