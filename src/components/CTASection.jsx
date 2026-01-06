@@ -1,7 +1,10 @@
 import { Button } from "@/components/ui/button";
-import { BookOpen } from "lucide-react";
+import { BookOpen, LayoutDashboard } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export const CTASection = () => {
+  const navigate = useNavigate();
+
   return (
     <section className="py-24 relative overflow-hidden">
       {/* Background effects */}
@@ -16,23 +19,26 @@ export const CTASection = () => {
               <span className="gradient-text">Learning Journey</span>
             </h2>
             <p className="text-xl text-muted-foreground mb-8">
-              Create your profile and begin mastering subjects at your own pace
+              Experience adaptive learning powered by AI agents that understand your unique learning style
             </p>
             
-            <div className="flex gap-4 justify-center">
+            <div className="flex gap-4 justify-center flex-wrap">
               <Button 
                 size="lg"
                 className="bg-gradient-to-r from-primary to-accent hover:shadow-lg hover:shadow-primary/50 transition-all duration-300"
+                onClick={() => navigate("/learn")}
               >
-                Create Profile
+                Start Learning
                 <BookOpen className="ml-2 w-4 h-4" />
               </Button>
               <Button 
                 size="lg"
                 variant="outline"
                 className="border-primary/50 hover:bg-primary/10"
+                onClick={() => navigate("/dashboard")}
               >
-                Sign In
+                <LayoutDashboard className="mr-2 w-4 h-4" />
+                View Progress
               </Button>
             </div>
           </div>
