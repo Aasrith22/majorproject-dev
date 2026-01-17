@@ -89,23 +89,22 @@ export const DashboardPage = () => {
   const { stats, recentTopics, learningPath } = userProfile;
   const { performanceHistory = [], conceptMastery = [] } = dashboardData || {};
 
-  // Prepare radar chart data - ensure at least 3 data points for radar chart
+  // Check if user has any data
+  const hasData = stats.questionsAnswered > 0 || stats.completedSessions > 0;
+
+  // Prepare radar chart data - show helpful message when no data
   const radarData = conceptMastery.length > 0 
     ? conceptMastery.map((c) => ({
         concept: c.concept?.split(" ")[0] || "Unknown",
         mastery: c.mastery || 0,
         fullMark: 100,
       }))
-    : [
-        { concept: "No Data", mastery: 0, fullMark: 100 },
-        { concept: "Yet", mastery: 0, fullMark: 100 },
-        { concept: "Available", mastery: 0, fullMark: 100 },
-      ];
+    : null; // Return null to show empty state instead of fake data
 
   // Ensure performanceHistory has data for charts
   const chartPerformanceHistory = performanceHistory.length > 0
     ? performanceHistory
-    : [{ date: new Date().toISOString(), score: 0, correctAnswers: 0, questionsAttempted: 0, timeSpent: 0 }];
+    : null; // Return null to show empty state
 
   return (
     <AppLayout showFooter={false}>
@@ -154,291 +153,402 @@ export const DashboardPage = () => {
 
             {/* Overview Tab */}
             <TabsContent value="overview" className="space-y-6">
-              <div className="grid lg:grid-cols-3 gap-6">
-                {/* Performance Chart */}
-                <Card className="glass-card lg:col-span-2">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <TrendingUp className="w-5 h-5 text-primary" />
-                      Performance Over Time
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <AreaChart data={chartPerformanceHistory}>
-                        <defs>
-                          <linearGradient id="scoreGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(263 70% 62%)" stopOpacity={0.3} />
-                            <stop offset="95%" stopColor="hsl(263 70% 62%)" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 25%)" />
-                        <XAxis
-                          dataKey="date"
-                          stroke="hsl(215 20.2% 65.1%)"
-                          fontSize={12}
-                          tickFormatter={(value) => new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                        />
-                        <YAxis stroke="hsl(215 20.2% 65.1%)" fontSize={12} domain={[0, 100]} />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "hsl(220 20% 12%)",
-                            border: "1px solid hsl(220 15% 25%)",
-                            borderRadius: "8px",
-                          }}
-                        />
-                        <Area type="monotone" dataKey="score" stroke="hsl(263 70% 62%)" strokeWidth={2} fill="url(#scoreGradient)" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-
-                {/* Concept Mastery Radar */}
-                <Card className="glass-card">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Brain className="w-5 h-5 text-secondary" />
-                      Concept Mastery
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={250}>
-                      <RadarChart data={radarData}>
-                        <PolarGrid stroke="hsl(220 15% 25%)" />
-                        <PolarAngleAxis dataKey="concept" tick={{ fill: "hsl(215 20.2% 65.1%)", fontSize: 10 }} />
-                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: "hsl(215 20.2% 65.1%)", fontSize: 10 }} />
-                        <Radar name="Mastery" dataKey="mastery" stroke="hsl(189 94% 43%)" fill="hsl(189 94% 43%)" fillOpacity={0.3} />
-                      </RadarChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Quick Actions & Recent Topics */}
-              <div className="grid lg:grid-cols-3 gap-6">
-                {/* Continue Learning */}
-                <Card className="glass-card">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Play className="w-5 h-5 text-green-400" />
-                      Continue Learning
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {learningPath.currentTopic && (
-                      <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
-                        <h4 className="font-semibold mb-2">{learningPath.currentTopic.name}</h4>
-                        <div className="flex items-center gap-2 mb-3">
-                          <Progress value={learningPath.currentTopic.progress} className="flex-1 h-2" />
-                          <span className="text-sm text-muted-foreground">{learningPath.currentTopic.progress}%</span>
-                        </div>
-                        <Button className="w-full gap-2" onClick={() => navigate(`/learn?topic=${learningPath.currentTopic?.id}`)}>
-                          <Play className="w-4 h-4" />
-                          Resume
-                        </Button>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-muted-foreground">Recommended Next:</p>
-                      {learningPath.recommendedTopics.slice(0, 2).map((topic) => (
-                        <Button key={topic.id} variant="outline" className="w-full justify-between" onClick={() => navigate(`/learn?topic=${topic.id}`)}>
-                          <span>{topic.name}</span>
-                          <ChevronRight className="w-4 h-4" />
-                        </Button>
-                      ))}
+              {/* Empty State for New Users */}
+              {!hasData && (
+                <Card className="glass-card p-8">
+                  <div className="text-center space-y-4">
+                    <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                      <BookOpen className="w-8 h-8 text-primary" />
                     </div>
-                  </CardContent>
+                    <h3 className="text-xl font-semibold">Welcome to Your Learning Dashboard!</h3>
+                    <p className="text-muted-foreground max-w-md mx-auto">
+                      Start your first learning session to see your analytics, track progress, and get personalized insights.
+                    </p>
+                    <Button onClick={() => navigate("/")} className="gap-2">
+                      <Play className="w-4 h-4" />
+                      Start Learning
+                    </Button>
+                  </div>
                 </Card>
+              )}
 
-                {/* Knowledge Gaps */}
-                <Card className="glass-card">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <AlertTriangle className="w-5 h-5 text-orange-400" />
-                      Knowledge Gaps
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ScrollArea className="h-[200px]">
-                      <div className="space-y-3">
-                        {learningPath.knowledgeGaps.map((gap) => (
-                          <div key={gap.id} className="p-3 rounded-lg border border-border/50 hover:bg-primary/5 transition-colors">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="font-medium text-sm">{gap.concept}</span>
-                              <Badge
-                                variant="outline"
-                                className={
-                                  gap.severity === "high"
-                                    ? "text-red-400 border-red-400/30"
-                                    : gap.severity === "medium"
-                                    ? "text-orange-400 border-orange-400/30"
-                                    : "text-yellow-400 border-yellow-400/30"
-                                }
-                              >
-                                {gap.severity}
-                              </Badge>
+              {hasData && (
+                <>
+                  <div className="grid lg:grid-cols-3 gap-6">
+                    {/* Performance Chart */}
+                    <Card className="glass-card lg:col-span-2">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <TrendingUp className="w-5 h-5 text-primary" />
+                          Performance Over Time
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {chartPerformanceHistory ? (
+                          <ResponsiveContainer width="100%" height={300}>
+                            <AreaChart data={chartPerformanceHistory}>
+                              <defs>
+                                <linearGradient id="scoreGradient" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="hsl(263 70% 62%)" stopOpacity={0.3} />
+                                  <stop offset="95%" stopColor="hsl(263 70% 62%)" stopOpacity={0} />
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 25%)" />
+                              <XAxis
+                                dataKey="date"
+                                stroke="hsl(215 20.2% 65.1%)"
+                                fontSize={12}
+                                tickFormatter={(value) => new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                              />
+                              <YAxis stroke="hsl(215 20.2% 65.1%)" fontSize={12} domain={[0, 100]} />
+                              <Tooltip
+                                contentStyle={{
+                                  backgroundColor: "hsl(220 20% 12%)",
+                                  border: "1px solid hsl(220 15% 25%)",
+                                  borderRadius: "8px",
+                                }}
+                              />
+                              <Area type="monotone" dataKey="score" stroke="hsl(263 70% 62%)" strokeWidth={2} fill="url(#scoreGradient)" />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="h-[300px] flex items-center justify-center">
+                            <div className="text-center">
+                              <TrendingUp className="w-12 h-12 text-muted-foreground/30 mx-auto mb-2" />
+                              <p className="text-muted-foreground">Complete sessions to see your performance trends</p>
                             </div>
-                            <p className="text-xs text-muted-foreground">{gap.recommendation}</p>
                           </div>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
+                        )}
+                      </CardContent>
+                    </Card>
 
-                {/* Recent Activity */}
-                <Card className="glass-card">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Calendar className="w-5 h-5 text-blue-400" />
-                      Recent Topics
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ScrollArea className="h-[200px]">
-                      <div className="space-y-3">
-                        {recentTopics.map((topic) => (
-                          <TopicCard key={topic.id} topic={topic} onSelect={() => navigate(`/learn?topic=${topic.id}`)} />
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
-              </div>
+                    {/* Concept Mastery Radar */}
+                    <Card className="glass-card">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Brain className="w-5 h-5 text-secondary" />
+                          Concept Mastery
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {radarData ? (
+                          <ResponsiveContainer width="100%" height={250}>
+                            <RadarChart data={radarData}>
+                              <PolarGrid stroke="hsl(220 15% 25%)" />
+                              <PolarAngleAxis dataKey="concept" tick={{ fill: "hsl(215 20.2% 65.1%)", fontSize: 10 }} />
+                              <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: "hsl(215 20.2% 65.1%)", fontSize: 10 }} />
+                              <Radar name="Mastery" dataKey="mastery" stroke="hsl(189 94% 43%)" fill="hsl(189 94% 43%)" fillOpacity={0.3} />
+                            </RadarChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="h-[250px] flex items-center justify-center">
+                            <div className="text-center">
+                              <Brain className="w-12 h-12 text-muted-foreground/30 mx-auto mb-2" />
+                              <p className="text-sm text-muted-foreground">Practice topics to track mastery</p>
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                </>
+              )}
+
+              {/* Quick Actions & Recent Topics - Only show when user has some activity */}
+              {(hasData || recentTopics.length > 0 || learningPath.recommendedTopics?.length > 0) && (
+                <div className="grid lg:grid-cols-3 gap-6">
+                  {/* Continue Learning */}
+                  <Card className="glass-card">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Play className="w-5 h-5 text-green-400" />
+                        Continue Learning
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {learningPath.currentTopic ? (
+                        <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+                          <h4 className="font-semibold mb-2">{learningPath.currentTopic.name}</h4>
+                          <div className="flex items-center gap-2 mb-3">
+                            <Progress value={learningPath.currentTopic.progress} className="flex-1 h-2" />
+                            <span className="text-sm text-muted-foreground">{learningPath.currentTopic.progress}%</span>
+                          </div>
+                          <Button className="w-full gap-2" onClick={() => navigate(`/learn?topic=${learningPath.currentTopic?.id}`)}>
+                            <Play className="w-4 h-4" />
+                            Resume
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="p-4 rounded-lg bg-muted/20 border border-border/50 text-center">
+                          <p className="text-sm text-muted-foreground">Start a session to track progress</p>
+                          <Button variant="outline" className="mt-2" onClick={() => navigate("/")}>
+                            Browse Topics
+                          </Button>
+                        </div>
+                      )}
+
+                      {learningPath.recommendedTopics?.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium text-muted-foreground">Recommended Next:</p>
+                          {learningPath.recommendedTopics.slice(0, 2).map((topic) => (
+                            <Button key={topic.id} variant="outline" className="w-full justify-between" onClick={() => navigate(`/learn?topic=${topic.id}`)}>
+                              <span>{topic.name}</span>
+                              <ChevronRight className="w-4 h-4" />
+                            </Button>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Knowledge Gaps */}
+                  <Card className="glass-card">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-orange-400" />
+                        Knowledge Gaps
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ScrollArea className="h-[200px]">
+                        {learningPath.knowledgeGaps?.length > 0 ? (
+                          <div className="space-y-3">
+                            {learningPath.knowledgeGaps.map((gap) => (
+                              <div key={gap.id} className="p-3 rounded-lg border border-border/50 hover:bg-primary/5 transition-colors">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="font-medium text-sm">{gap.concept}</span>
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      gap.severity === "high"
+                                        ? "text-red-400 border-red-400/30"
+                                        : gap.severity === "medium"
+                                        ? "text-orange-400 border-orange-400/30"
+                                        : "text-yellow-400 border-yellow-400/30"
+                                    }
+                                  >
+                                    {gap.severity}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground">{gap.recommendation}</p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="h-full flex items-center justify-center">
+                            <div className="text-center">
+                              <CheckCircle2 className="w-8 h-8 text-green-400/50 mx-auto mb-2" />
+                              <p className="text-sm text-muted-foreground">No gaps identified yet</p>
+                            </div>
+                          </div>
+                        )}
+                      </ScrollArea>
+                    </CardContent>
+                  </Card>
+
+                  {/* Recent Activity */}
+                  <Card className="glass-card">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Calendar className="w-5 h-5 text-blue-400" />
+                        Recent Topics
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ScrollArea className="h-[200px]">
+                        {recentTopics.length > 0 ? (
+                          <div className="space-y-3">
+                            {recentTopics.map((topic) => (
+                              <TopicCard key={topic.id} topic={topic} onSelect={() => navigate(`/learn?topic=${topic.id}`)} />
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="h-full flex items-center justify-center">
+                            <div className="text-center">
+                              <BookOpen className="w-8 h-8 text-muted-foreground/50 mx-auto mb-2" />
+                              <p className="text-sm text-muted-foreground">No recent activity</p>
+                            </div>
+                          </div>
+                        )}
+                      </ScrollArea>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
             </TabsContent>
 
             {/* Progress Tab */}
             <TabsContent value="progress" className="space-y-6">
-              <div className="grid lg:grid-cols-2 gap-6">
-                {/* Questions Answered Chart */}
+              {!hasData ? (
                 <Card className="glass-card">
-                  <CardHeader>
-                    <CardTitle>Questions Answered</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <BarChart data={chartPerformanceHistory}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 25%)" />
-                        <XAxis
-                          dataKey="date"
-                          stroke="hsl(215 20.2% 65.1%)"
-                          fontSize={12}
-                          tickFormatter={(value) => new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                        />
-                        <YAxis stroke="hsl(215 20.2% 65.1%)" fontSize={12} />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "hsl(220 20% 12%)",
-                            border: "1px solid hsl(220 15% 25%)",
-                            borderRadius: "8px",
-                          }}
-                        />
-                        <Legend />
-                        <Bar dataKey="correctAnswers" name="Correct" fill="hsl(142 71% 45%)" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="questionsAttempted" name="Attempted" fill="hsl(263 70% 62%)" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-
-                {/* Time Spent Chart */}
-                <Card className="glass-card">
-                  <CardHeader>
-                    <CardTitle>Time Invested</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <LineChart data={chartPerformanceHistory}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 25%)" />
-                        <XAxis
-                          dataKey="date"
-                          stroke="hsl(215 20.2% 65.1%)"
-                          fontSize={12}
-                          tickFormatter={(value) => new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                        />
-                        <YAxis stroke="hsl(215 20.2% 65.1%)" fontSize={12} />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "hsl(220 20% 12%)",
-                            border: "1px solid hsl(220 15% 25%)",
-                            borderRadius: "8px",
-                          }}
-                        />
-                        <Line type="monotone" dataKey="timeSpent" name="Minutes" stroke="hsl(189 94% 43%)" strokeWidth={2} dot={{ fill: "hsl(189 94% 43%)" }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Concept Mastery Details */}
-              <Card className="glass-card">
-                <CardHeader>
-                  <CardTitle>Concept Mastery Details</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {conceptMastery.map((concept) => (
-                      <div key={concept.concept} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-medium">{concept.concept}</span>
-                          <div className="flex items-center gap-2">
-                            <Badge
-                              variant="outline"
-                              className={
-                                concept.trend === "improving"
-                                  ? "text-green-400 border-green-400/30"
-                                  : concept.trend === "declining"
-                                  ? "text-red-400 border-red-400/30"
-                                  : "text-muted-foreground"
-                              }
-                            >
-                              {concept.trend === "improving" && "↑"}
-                              {concept.trend === "declining" && "↓"}
-                              {concept.trend === "stable" && "→"} {concept.trend}
-                            </Badge>
-                            <span className="text-sm font-semibold">{concept.mastery}%</span>
-                          </div>
-                        </div>
-                        <Progress value={concept.mastery} className="h-2" />
+                  <CardContent className="py-12">
+                    <div className="text-center space-y-4">
+                      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center mx-auto">
+                        <TrendingUp className="w-8 h-8 text-primary" />
                       </div>
-                    ))}
+                      <h3 className="text-xl font-semibold">Track Your Progress</h3>
+                      <p className="text-muted-foreground max-w-md mx-auto">
+                        Complete learning sessions to see detailed analytics about your question performance and time investment.
+                      </p>
+                      <Button onClick={() => navigate("/learn")} className="gap-2">
+                        <Play className="w-4 h-4" />
+                        Start Learning
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  <div className="grid lg:grid-cols-2 gap-6">
+                    {/* Questions Answered Chart */}
+                    <Card className="glass-card">
+                      <CardHeader>
+                        <CardTitle>Questions Answered</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {chartPerformanceHistory && chartPerformanceHistory.length > 0 ? (
+                          <ResponsiveContainer width="100%" height={300}>
+                            <BarChart data={chartPerformanceHistory}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 25%)" />
+                              <XAxis
+                                dataKey="date"
+                                stroke="hsl(215 20.2% 65.1%)"
+                                fontSize={12}
+                                tickFormatter={(value) => new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                              />
+                              <YAxis stroke="hsl(215 20.2% 65.1%)" fontSize={12} />
+                              <Tooltip
+                                contentStyle={{
+                                  backgroundColor: "hsl(220 20% 12%)",
+                                  border: "1px solid hsl(220 15% 25%)",
+                                  borderRadius: "8px",
+                                }}
+                              />
+                              <Legend />
+                              <Bar dataKey="correctAnswers" name="Correct" fill="hsl(142 71% 45%)" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="questionsAttempted" name="Attempted" fill="hsl(263 70% 62%)" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="h-[300px] flex items-center justify-center">
+                            <p className="text-muted-foreground">Complete sessions to see your question performance</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    {/* Time Spent Chart */}
+                    <Card className="glass-card">
+                      <CardHeader>
+                        <CardTitle>Time Invested</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {chartPerformanceHistory && chartPerformanceHistory.length > 0 ? (
+                          <ResponsiveContainer width="100%" height={300}>
+                            <LineChart data={chartPerformanceHistory}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 15% 25%)" />
+                              <XAxis
+                                dataKey="date"
+                                stroke="hsl(215 20.2% 65.1%)"
+                                fontSize={12}
+                                tickFormatter={(value) => new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                              />
+                              <YAxis stroke="hsl(215 20.2% 65.1%)" fontSize={12} />
+                              <Tooltip
+                                contentStyle={{
+                                  backgroundColor: "hsl(220 20% 12%)",
+                                  border: "1px solid hsl(220 15% 25%)",
+                                  borderRadius: "8px",
+                                }}
+                              />
+                              <Line type="monotone" dataKey="timeSpent" name="Minutes" stroke="hsl(189 94% 43%)" strokeWidth={2} dot={{ fill: "hsl(189 94% 43%)" }} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="h-[300px] flex items-center justify-center">
+                            <p className="text-muted-foreground">Complete sessions to track time invested</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardContent>
-              </Card>
+
+                  {/* Concept Mastery Details */}
+                  <Card className="glass-card">
+                    <CardHeader>
+                      <CardTitle>Concept Mastery Details</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {conceptMastery && conceptMastery.length > 0 ? (
+                        <div className="space-y-4">
+                          {conceptMastery.map((concept) => (
+                            <div key={concept.concept} className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium">{concept.concept}</span>
+                                <div className="flex items-center gap-2">
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      concept.trend === "improving"
+                                        ? "text-green-400 border-green-400/30"
+                                        : concept.trend === "declining"
+                                        ? "text-red-400 border-red-400/30"
+                                        : "text-muted-foreground"
+                                    }
+                                  >
+                                    {concept.trend === "improving" && "↑"}
+                                    {concept.trend === "declining" && "↓"}
+                                    {concept.trend === "stable" && "→"} {concept.trend}
+                                  </Badge>
+                                  <span className="text-sm font-semibold">{concept.mastery}%</span>
+                                </div>
+                              </div>
+                              <Progress value={concept.mastery} className="h-2" />
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="py-8 text-center">
+                          <p className="text-muted-foreground">Complete sessions to see concept mastery analysis</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
+              )}
             </TabsContent>
 
             {/* Topics Tab */}
             <TabsContent value="topics" className="space-y-6">
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {recentTopics.map((topic) => (
-                  <Card key={topic.id} className="glass-card hover:scale-105 transition-all duration-300 cursor-pointer" onClick={() => navigate(`/learn?topic=${topic.id}`)}>
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <Badge variant="secondary">{topic.subject}</Badge>
-                        <Badge
-                          variant="outline"
-                          className={topic.status === "completed" ? "text-green-400 border-green-400/30" : "text-yellow-400 border-yellow-400/30"}
-                        >
-                          {topic.status}
-                        </Badge>
-                      </div>
-                      <CardTitle className="text-lg">{topic.name}</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">Progress</span>
-                          <span className="font-medium">{topic.progress}%</span>
+              {recentTopics.length > 0 ? (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {recentTopics.map((topic) => (
+                    <Card key={topic.id} className="glass-card hover:scale-105 transition-all duration-300 cursor-pointer" onClick={() => navigate(`/learn?topic=${topic.id}`)}>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <Badge variant="secondary">{topic.subject}</Badge>
+                          <Badge
+                            variant="outline"
+                            className={topic.status === "completed" ? "text-green-400 border-green-400/30" : "text-yellow-400 border-yellow-400/30"}
+                          >
+                            {topic.status}
+                          </Badge>
                         </div>
-                        <Progress value={topic.progress} className="h-2" />
-                        {topic.score && (
+                        <CardTitle className="text-lg">{topic.name}</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
                           <div className="flex items-center justify-between text-sm">
-                            <span className="text-muted-foreground">Score</span>
-                            <span className="font-medium gradient-text">{topic.score}%</span>
+                            <span className="text-muted-foreground">Progress</span>
+                            <span className="font-medium">{topic.progress}%</span>
                           </div>
-                        )}
+                          <Progress value={topic.progress} className="h-2" />
+                          {topic.score && (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Score</span>
+                              <span className="font-medium gradient-text">{topic.score}%</span>
+                            </div>
+                          )}
                         <Button className="w-full mt-2 gap-2">
                           <Play className="w-4 h-4" />
                           {topic.status === "completed" ? "Review" : "Continue"}
@@ -448,6 +558,25 @@ export const DashboardPage = () => {
                   </Card>
                 ))}
               </div>
+              ) : (
+                <Card className="glass-card">
+                  <CardContent className="py-12">
+                    <div className="text-center space-y-4">
+                      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center mx-auto">
+                        <BookOpen className="w-8 h-8 text-primary" />
+                      </div>
+                      <h3 className="text-xl font-semibold">Explore Topics</h3>
+                      <p className="text-muted-foreground max-w-md mx-auto">
+                        Start a learning session to build your topic library. Your studied topics will appear here.
+                      </p>
+                      <Button onClick={() => navigate("/learn")} className="gap-2">
+                        <Play className="w-4 h-4" />
+                        Start Learning
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
 
             {/* Insights Tab */}
@@ -461,10 +590,54 @@ export const DashboardPage = () => {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <InsightCard title="Peak Learning Time" description="You perform best during afternoon sessions" icon={Clock} color="text-blue-400" />
-                    <InsightCard title="Strong in Data Structures" description="You've mastered 85% of data structure concepts" icon={CheckCircle2} color="text-green-400" />
-                    <InsightCard title="Focus on Algorithms" description="Dynamic programming needs more attention" icon={AlertTriangle} color="text-orange-400" />
-                    <InsightCard title="Consistent Learner" description={`${stats.streakDays} day learning streak! Keep it up!`} icon={Flame} color="text-red-400" />
+                    {stats.questionsAnswered > 0 && (
+                      <InsightCard 
+                        title="Questions Completed" 
+                        description={`You've answered ${stats.questionsAnswered} questions with ${Math.round((stats.correctAnswers / stats.questionsAnswered) * 100) || 0}% accuracy`} 
+                        icon={CheckCircle2} 
+                        color="text-green-400" 
+                      />
+                    )}
+                    {learnerProfile?.weaknesses?.length > 0 && (
+                      <InsightCard 
+                        title="Areas to Improve" 
+                        description={`Focus on: ${learnerProfile.weaknesses.slice(0, 2).join(', ')}`} 
+                        icon={AlertTriangle} 
+                        color="text-orange-400" 
+                      />
+                    )}
+                    {learnerProfile?.strengths?.length > 0 && (
+                      <InsightCard 
+                        title="Your Strengths" 
+                        description={`Strong in: ${learnerProfile.strengths.slice(0, 2).join(', ')}`} 
+                        icon={Target} 
+                        color="text-blue-400" 
+                      />
+                    )}
+                    {stats.streakDays > 0 && (
+                      <InsightCard 
+                        title="Learning Streak" 
+                        description={`${stats.streakDays} day streak! Keep it up!`} 
+                        icon={Flame} 
+                        color="text-red-400" 
+                      />
+                    )}
+                    {stats.totalTimeSpent > 0 && (
+                      <InsightCard 
+                        title="Study Time" 
+                        description={`You've studied for ${Math.floor(stats.totalTimeSpent / 60)} hours ${stats.totalTimeSpent % 60} minutes`} 
+                        icon={Clock} 
+                        color="text-purple-400" 
+                      />
+                    )}
+                    {stats.questionsAnswered === 0 && (
+                      <InsightCard 
+                        title="Get Started" 
+                        description="Complete some learning sessions to see your insights here!" 
+                        icon={BookOpen} 
+                        color="text-primary" 
+                      />
+                    )}
                   </CardContent>
                 </Card>
 
@@ -472,14 +645,40 @@ export const DashboardPage = () => {
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Target className="w-5 h-5 text-green-400" />
-                      Weekly Goals
+                      Your Progress
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <GoalCard title="Complete 20 questions" progress={75} current={15} target={20} />
-                    <GoalCard title="Study for 5 hours" progress={60} current={3} target={5} unit="hours" />
-                    <GoalCard title="Master 2 new concepts" progress={50} current={1} target={2} />
-                    <GoalCard title="Maintain 80% accuracy" progress={100} current={82} target={80} unit="%" />
+                    <GoalCard 
+                      title="Sessions Completed" 
+                      progress={Math.min(stats.completedSessions * 10, 100)} 
+                      current={stats.completedSessions} 
+                      target={10} 
+                    />
+                    <GoalCard 
+                      title="Questions Answered" 
+                      progress={Math.min(stats.questionsAnswered, 100)} 
+                      current={stats.questionsAnswered} 
+                      target={100} 
+                    />
+                    {learnerProfile?.overall_mastery > 0 && (
+                      <GoalCard 
+                        title="Overall Mastery" 
+                        progress={learnerProfile.overall_mastery} 
+                        current={Math.round(learnerProfile.overall_mastery)} 
+                        target={100} 
+                        unit="%" 
+                      />
+                    )}
+                    {stats.questionsAnswered > 0 && (
+                      <GoalCard 
+                        title="Accuracy Rate" 
+                        progress={Math.round((stats.correctAnswers / stats.questionsAnswered) * 100) || 0} 
+                        current={Math.round((stats.correctAnswers / stats.questionsAnswered) * 100) || 0} 
+                        target={100} 
+                        unit="%" 
+                      />
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -507,14 +706,11 @@ const TopicCard = ({ topic, onSelect }) => (
     </div>
     <div className="flex-1 min-w-0">
       <p className="font-medium text-sm truncate">{topic.name}</p>
-      <p className="text-xs text-muted-foreground">{topic.subject}</p>
+      <p className="text-xs text-muted-foreground">{topic.subject || "General"}</p>
     </div>
-    <div className="text-right">
-      <p className="text-sm font-semibold">{topic.progress}%</p>
-      <Badge variant="outline" className="text-xs">
-        {topic.status}
-      </Badge>
-    </div>
+    <Badge variant="outline" className="text-xs">
+      {topic.status || "study"}
+    </Badge>
   </div>
 );
 

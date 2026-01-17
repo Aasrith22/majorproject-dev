@@ -50,8 +50,12 @@ class Settings(BaseSettings):
     google_api_key: str = Field(default="", description="Google Gemini API Key - Add your key here")
     gemini_model: str = "gemini-1.5-flash"
     
+    # Tavily Search API (Dynamic Fallback)
+    tavily_api_key: str = Field(default="", description="Tavily API Key for dynamic content retrieval")
+    tavily_search_depth: str = "advanced"  # "basic" or "advanced"
+    
     # Default LLM Provider
-    default_llm_provider: str = "openai"  # "openai" or "gemini"
+    default_llm_provider: str = "gemini"  # "openai" or "gemini" - Gemini is primary
     
     # ===========================================
     # CREWAI CONFIGURATION

@@ -287,6 +287,9 @@ async def end_session(
         
         # Save custom topic to profile if this was a custom topic session
         if session.is_custom_topic and session.custom_query:
+            # Get subject area from session context (set during question generation)
+            subject_area = session.session_context.get("detected_subject", "General")
+            
             # Check if topic already exists in custom_topics
             existing_topic = next(
                 (t for t in profile.custom_topics if t.get("name", "").lower() == session.custom_query.lower()),
@@ -299,13 +302,15 @@ async def end_session(
                 existing_topic["last_studied"] = datetime.utcnow().isoformat()
                 existing_topic["total_questions"] = existing_topic.get("total_questions", 0) + session.questions_answered
                 existing_topic["correct_answers"] = existing_topic.get("correct_answers", 0) + session.correct_answers
+                if subject_area and subject_area != "General":
+                    existing_topic["subject"] = subject_area
             else:
-                # Add new custom topic
+                # Add new custom topic with detected subject
                 profile.custom_topics.append({
                     "id": session.topic_name.lower().replace(" ", "-"),
                     "name": session.custom_query or session.topic_name,
-                    "subject": "Custom",
-                    "description": f"Custom topic: {session.custom_query or session.topic_name}",
+                    "subject": subject_area,
+                    "description": f"{subject_area}: {session.custom_query or session.topic_name}",
                     "sessions_completed": 1,
                     "total_questions": session.questions_answered,
                     "correct_answers": session.correct_answers,

@@ -45,19 +45,6 @@ export const QuestionDisplay = ({
     }
   };
 
-  const getDifficultyColor = (difficulty) => {
-    switch (difficulty) {
-      case "easy":
-        return "bg-green-500/20 text-green-400 border-green-500/30";
-      case "medium":
-        return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
-      case "hard":
-        return "bg-red-500/20 text-red-400 border-red-500/30";
-      default:
-        return "";
-    }
-  };
-
   const getModalityIcon = () => {
     switch (question.expectedModality) {
       case "text":
@@ -124,9 +111,6 @@ export const QuestionDisplay = ({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className={getDifficultyColor(question.difficulty)}>
-            {question.difficulty}
-          </Badge>
           <Badge variant="secondary" className="gap-1">
             {getQuestionTypeIcon()}
             {getQuestionTypeLabel()}

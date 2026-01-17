@@ -79,13 +79,13 @@ class QueryAnalysisAgent:
         user_input: str,
         context: Dict[str, Any]
     ) -> str:
-        """Build the prompt for LLM analysis"""
+        """Build the prompt for LLM analysis - Academic Assessment Focus"""
         
         session_history = context.get("session_history", [])
         learner_profile = context.get("learner_profile", {})
         topic = context.get("topic", "")
         
-        prompt = f"""Analyze the following learner input in an educational context.
+        prompt = f"""Analyze the following learner input for an ACADEMIC ASSESSMENT context.
 
 LEARNER INPUT:
 "{user_input}"
@@ -98,30 +98,40 @@ CONTEXT:
 
 Provide a structured analysis with the following:
 
-1. INTENT CLASSIFICATION:
+1. SUBJECT DOMAIN CLASSIFICATION:
+   - Domain: (STEM | Humanities | Professional_Certification | Computer_Science | Business | Medical | Legal | Engineering | Other)
+   - Subdomain: Specific field within the domain (e.g., "Data Structures", "Constitutional Law")
+   - Academic Level: (undergraduate | graduate | professional_certification | competitive_exam)
+
+2. INTENT CLASSIFICATION:
    - Primary Intent: (definition_seeking | explanation_seeking | application_seeking | 
-                      clarification_seeking | assessment_response | general_question)
+                      clarification_seeking | assessment_response | problem_solving)
    - Confidence: (0.0 to 1.0)
 
-2. TOPIC EXTRACTION:
-   - Main Topic: The primary subject being discussed
-   - Subtopics: Related concepts mentioned
-   - Subject Area: Broader academic subject
+3. TOPIC EXTRACTION:
+   - Main Topic: The specific technical/academic subject
+   - Subtopics: Related technical concepts
+   - Key Terminology: Domain-specific terms that should be used
+   - Prerequisites: Foundational concepts needed
 
-3. COGNITIVE LEVEL:
+4. COGNITIVE RIGOR MAPPING:
    - Bloom's Level: (remember | understand | apply | analyze | evaluate | create)
-   - Complexity: (basic | intermediate | advanced)
+   - Target Level: For assessment, prioritize 'analyze' or 'evaluate' over 'remember'
+   - Complexity: (foundational | intermediate | advanced | expert)
+   - Exam Context: Type of exam this might relate to (e.g., "University Exam", "Certification", "Competitive")
 
-4. LEARNER STATE:
-   - Understanding Level: (confused | uncertain | partial | solid)
-   - Emotional Tone: (frustrated | neutral | curious | confident)
+5. LEARNER STATE:
+   - Understanding Level: (novice | developing | proficient | expert)
    - Engagement Level: (low | medium | high)
+   - Learning Style Indicators: (theoretical | practical | visual | hands-on)
 
-5. ASSESSMENT RECOMMENDATIONS:
-   - Suggested Difficulty: (beginner | easy | medium | hard | expert)
-   - Question Type: (mcq | fill_in_blank | essay | diagram)
-   - Focus Areas: Concepts to emphasize
+6. ASSESSMENT RECOMMENDATIONS:
+   - Suggested Difficulty: (foundational | intermediate | advanced | expert)
+   - Question Type: (mcq | fill_in_blank | essay | case_study | problem_solving)
+   - Focus Areas: Specific technical concepts to assess
+   - Avoid: Generic or trivia-style questions
 
+IMPORTANT: Prioritize technical depth and professional exam standards.
 Respond in JSON format."""
 
         return prompt

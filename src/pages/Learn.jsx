@@ -17,7 +17,6 @@ import { Progress } from "@/components/ui/progress";
 import { useLearning } from "@/context/LearningContext";
 import { MultimodalInput } from "@/components/learning/MultimodalInput";
 import { QuestionDisplay } from "@/components/learning/QuestionDisplay";
-import { AgentStatus } from "@/components/learning/AgentStatus";
 import { SessionSummary } from "@/components/learning/SessionSummary";
 import {
   BookOpen,
@@ -26,15 +25,11 @@ import {
   RefreshCw,
   ChevronLeft,
   Clock,
-  Target,
-  Zap,
   Loader2,
   ListChecks,
   TextCursorInput,
   FileText,
-  Hash,
   Brain,
-  TrendingUp,
 } from "lucide-react";
 import apiService from "@/services/unified-api.service.js";
 
@@ -216,31 +211,31 @@ export const LearnPage = () => {
           {/* Main Content */}
           {!state.isSessionActive ? (
             // Session Setup
-            <div className="max-w-2xl mx-auto">
-              <Card className="glass-card p-8">
-                <div className="text-center mb-8">
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-accent flex items-center justify-center mx-auto mb-4">
-                    <BookOpen className="w-8 h-8 text-primary-foreground" />
+            <div className="max-w-lg mx-auto">
+              <Card className="glass-card p-6">
+                <div className="text-center mb-6">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center mx-auto mb-3">
+                    <BookOpen className="w-6 h-6 text-primary-foreground" />
                   </div>
-                  <h2 className="text-2xl font-bold mb-2">Start a Learning Session</h2>
-                  <p className="text-muted-foreground">
-                    Choose a topic or enter a custom query to begin adaptive testing
+                  <h2 className="text-xl font-bold mb-1">Start Learning</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Configure your session below
                   </p>
                 </div>
 
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {/* Test Type Selection */}
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <label className="text-sm font-medium">Question Type</label>
                     <Select value={selectedTestType} onValueChange={setSelectedTestType}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Choose question format..." />
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose format..." />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="mcq">
                           <div className="flex items-center gap-2">
                             <ListChecks className="w-4 h-4 text-blue-400" />
-                            Multiple Choice Questions
+                            Multiple Choice
                           </div>
                         </SelectItem>
                         <SelectItem value="fill-in-blank">
@@ -260,153 +255,78 @@ export const LearnPage = () => {
                   </div>
 
                   {/* Topic Selection Mode Toggle */}
-                  <div className="space-y-3">
+                  <div className="space-y-1.5">
                     <label className="text-sm font-medium">Topic</label>
-                    <div className="flex gap-2 p-1 rounded-lg bg-muted/50">
+                    <div className="flex gap-1 p-1 rounded-lg bg-muted/50">
                       <Button
                         type="button"
                         variant={!isCustomTopic ? "secondary" : "ghost"}
-                        className="flex-1 gap-2"
+                        size="sm"
+                        className="flex-1 gap-1.5"
                         onClick={() => setIsCustomTopic(false)}
                       >
-                        <BookOpen className="w-4 h-4" />
-                        Select Course
+                        <BookOpen className="w-3.5 h-3.5" />
+                        Course
                       </Button>
                       <Button
                         type="button"
                         variant={isCustomTopic ? "secondary" : "ghost"}
-                        className="flex-1 gap-2"
+                        size="sm"
+                        className="flex-1 gap-1.5"
                         onClick={() => setIsCustomTopic(true)}
                       >
-                        <Brain className="w-4 h-4" />
-                        Custom Query
+                        <Brain className="w-3.5 h-3.5" />
+                        Custom
                       </Button>
                     </div>
                   </div>
 
                   {/* Topic Selection or Custom Input */}
                   {!isCustomTopic ? (
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Select from Courses</label>
-                      <Select value={selectedTopicId} onValueChange={setSelectedTopicId} disabled={isLoadingTopics}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Choose a topic..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {topics.map((topic) => (
-                            <SelectItem key={topic.id} value={topic.id}>
-                              <div className="flex items-center gap-2">
-                                <span>{topic.name}</span>
-                                <Badge variant={topic.isCustom ? "secondary" : "outline"} className="text-xs">
-                                  {topic.isCustom ? "Custom" : topic.subject}
-                                </Badge>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    <Select value={selectedTopicId} onValueChange={setSelectedTopicId} disabled={isLoadingTopics}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a course..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {topics.map((topic) => (
+                          <SelectItem key={topic.id} value={topic.id}>
+                            {topic.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   ) : (
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Enter Topic or Query</label>
-                      <Input
-                        value={customTopic}
-                        onChange={(e) => setCustomTopic(e.target.value)}
-                        placeholder="e.g., Binary Search Trees, Machine Learning basics, Explain recursion..."
-                        className="w-full"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Type any topic, concept, or question. Our AI will generate relevant questions.
-                      </p>
-                    </div>
+                    <Input
+                      value={customTopic}
+                      onChange={(e) => setCustomTopic(e.target.value)}
+                      placeholder="Enter any topic or question..."
+                    />
                   )}
 
                   {/* Number of Questions Selection */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Number of Questions</label>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Questions</label>
                     <Select value={questionCount.toString()} onValueChange={(value) => setQuestionCount(parseInt(value))}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="3">
-                          <div className="flex items-center gap-2">
-                            <Hash className="w-4 h-4 text-blue-400" />
-                            3 Questions - Quick Test
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="5">
-                          <div className="flex items-center gap-2">
-                            <Hash className="w-4 h-4 text-green-400" />
-                            5 Questions - Standard
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="10">
-                          <div className="flex items-center gap-2">
-                            <Hash className="w-4 h-4 text-yellow-400" />
-                            10 Questions - Comprehensive
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="15">
-                          <div className="flex items-center gap-2">
-                            <Hash className="w-4 h-4 text-orange-400" />
-                            15 Questions - Full Assessment
-                          </div>
-                        </SelectItem>
+                        <SelectItem value="3">3 Questions</SelectItem>
+                        <SelectItem value="5">5 Questions</SelectItem>
+                        <SelectItem value="10">10 Questions</SelectItem>
+                        <SelectItem value="15">15 Questions</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-
-                  {/* Topic Preview */}
-                  {!isCustomTopic && selectedTopic && (
-                    <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-semibold">{selectedTopic.name}</h4>
-                        <Badge variant="secondary">{selectedTopic.subject}</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mb-3">
-                        {selectedTopic.description || `Continue learning ${selectedTopic.name} in ${selectedTopic.subject}`}
-                      </p>
-                      <div className="flex items-center gap-4 text-sm">
-                        <span className="flex items-center gap-1">
-                          <Zap className="w-4 h-4 text-primary" />
-                          {selectedTopic.progress}% complete
-                        </span>
-                        {selectedTopic.score && (
-                          <span className="flex items-center gap-1">
-                            <Target className="w-4 h-4 text-secondary" />
-                            {selectedTopic.score}% score
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Custom Topic Preview */}
-                  {isCustomTopic && customTopic && (
-                    <div className="p-4 rounded-lg bg-secondary/5 border border-secondary/20">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Brain className="w-5 h-5 text-secondary" />
-                        <h4 className="font-semibold">Custom Query</h4>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        "{customTopic}"
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        AI will analyze your query and generate adaptive questions
-                      </p>
-                    </div>
-                  )}
 
                   {/* Start Button */}
                   <Button 
                     onClick={handleStartSession} 
                     disabled={isCustomTopic ? !customTopic.trim() : (!selectedTopicId || isLoadingTopics)} 
-                    className="w-full gap-2" 
-                    size="lg"
+                    className="w-full gap-2 mt-2" 
                   >
-                    <Play className="w-5 h-5" />
-                    Start Learning Session
+                    <Play className="w-4 h-4" />
+                    Start Session
                   </Button>
                 </div>
               </Card>
@@ -482,7 +402,7 @@ export const LearnPage = () => {
                     <div className="flex flex-col items-center justify-center space-y-4">
                       <BookOpen className="w-12 h-12 text-muted-foreground" />
                       <p className="text-lg font-medium">Ready to Learn</p>
-                      <Button onClick={() => generateQuestion(selectedDifficulty, selectedTestType)}>
+                      <Button onClick={() => generateQuestion(null, selectedTestType)}>
                         <RefreshCw className="w-4 h-4 mr-2" />
                         Generate Question
                       </Button>
@@ -493,39 +413,11 @@ export const LearnPage = () => {
 
               {/* Sidebar */}
               <div className="space-y-6">
-                {/* Agent Status */}
-                <AgentStatus agentResponses={state.agentResponses} />
-
-                {/* Adaptive Difficulty Info */}
-                {state.adaptivityState && state.adaptivityState.recentPerformance && (
-                  <Card className="glass-card p-4">
-                    <h4 className="font-semibold mb-4 flex items-center gap-2">
-                      <Brain className="w-4 h-4 text-purple-400" />
-                      Adaptive Learning
-                    </h4>
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Recent Performance</span>
-                        <span className="text-sm font-medium flex items-center gap-1">
-                          <TrendingUp className="w-3 h-3 text-green-400" />
-                          {state.adaptivityState.recentPerformance.avgScore?.toFixed(0)}%
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-muted-foreground">Correct Answers</span>
-                        <span className="text-sm font-medium">
-                          {state.adaptivityState.recentPerformance.correctCount}/{state.adaptivityState.recentPerformance.totalQuestions}
-                        </span>
-                      </div>
-                    </div>
-                  </Card>
-                )}
-
-                {/* Session Info */}
+                {/* Session Info - Simplified */}
                 <Card className="glass-card p-4">
                   <h4 className="font-semibold mb-4 flex items-center gap-2">
                     <BookOpen className="w-4 h-4 text-primary" />
-                    Current Session
+                    Session Info
                   </h4>
                   <div className="space-y-3">
                     <div className="flex justify-between">
@@ -535,28 +427,19 @@ export const LearnPage = () => {
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Type</span>
-                      <Badge
-                        variant="outline"
-                        className={
-                          selectedTestType === "mcq"
-                            ? "text-blue-400"
-                            : selectedTestType === "fill-in-blank"
-                            ? "text-purple-400"
-                            : "text-green-400"
-                        }
-                      >
-                        {selectedTestType === "mcq" ? "MCQ" : selectedTestType === "fill-in-blank" ? "Fill in Blanks" : "Essay"}
-                      </Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm text-muted-foreground">Duration</span>
+                      <span className="text-sm text-muted-foreground">Time</span>
                       <span className="text-sm font-mono">{formatTime(sessionTime)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Progress</span>
                       <span className="text-sm font-medium">
                         {state.currentQuestionNumber}/{state.totalQuestions}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm text-muted-foreground">Correct</span>
+                      <span className="text-sm font-medium text-green-400">
+                        {state.allFeedback?.filter(f => f.isCorrect).length || 0}
                       </span>
                     </div>
                     <div className="pt-2">

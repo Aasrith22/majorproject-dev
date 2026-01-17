@@ -30,10 +30,26 @@ async def get_progress(current_user: User = Depends(get_or_create_guest_user)):
         profile = LearnerProfile(user_id=str(current_user.id))
         await profile.insert()
     
+    # Get current focus topics from recent sessions
+    recent_sessions = await LearningSession.find(
+        LearningSession.user_id == str(current_user.id)
+    ).sort(-LearningSession.last_activity_at).limit(10).to_list()
+    
+    # Extract unique topics being studied
+    current_focus_topics = list(set([
+        s.topic_name for s in recent_sessions 
+        if s.topic_name and s.status in [SessionStatus.ACTIVE, SessionStatus.COMPLETED]
+    ]))[:5]  # Limit to 5 topics
+    
+    # Update profile with current focus topics
+    if current_focus_topics and current_focus_topics != profile.current_focus_topics:
+        profile.current_focus_topics = current_focus_topics
+        await profile.save()
+    
     return LearnerProfileResponse(
         user_id=profile.user_id,
         current_difficulty=profile.current_difficulty,
-        current_focus_topics=profile.current_focus_topics,
+        current_focus_topics=current_focus_topics or profile.current_focus_topics,
         overall_mastery=profile.overall_mastery,
         accuracy=profile.accuracy,
         total_questions_attempted=profile.total_questions_attempted,
@@ -146,14 +162,36 @@ async def get_analytics(
         questions_correct=correct_answers,
         accuracy=accuracy,
         average_score=average_score,
-        total_study_time_minutes=total_study_time // 60,
+        total_study_time_minutes=total_study_time // 60 if total_study_time else 0,
         sessions_completed=len([s for s in sessions if s.status == SessionStatus.COMPLETED]),
         difficulty_distribution=difficulty_distribution,
         topics_studied=list(topic_stats.values()),
         accuracy_trend=accuracy_trend,
         mastery_trend=[],  # Would need historical data
         improvement_percentage=improvement,
-    )
+    ).model_dump() | {
+        # Add performance history for charts
+        "performance_history": [
+            {
+                "date": day,
+                "score": (stats["correct"] / stats["total"] * 100) if stats["total"] > 0 else 0,
+                "correctAnswers": stats["correct"],
+                "questionsAttempted": stats["total"],
+                "timeSpent": sum((s.total_duration_seconds or 0) // 60 for s in sessions if s.started_at.date().isoformat() == day)
+            }
+            for day, stats in sorted(responses_by_day.items())
+        ],
+        # Add concept mastery from topic stats
+        "concept_mastery": [
+            {
+                "concept": topic_data["topic"],
+                "mastery": (topic_data["correct"] / topic_data["questions"] * 100) if topic_data["questions"] > 0 else 0,
+                "trend": "improving" if topic_data["correct"] / max(topic_data["questions"], 1) > 0.7 else "stable" if topic_data["correct"] / max(topic_data["questions"], 1) > 0.4 else "declining"
+            }
+            for topic_data in topic_stats.values()
+            if topic_data["questions"] > 0
+        ]
+    }
 
 
 @router.get("/recommendations")

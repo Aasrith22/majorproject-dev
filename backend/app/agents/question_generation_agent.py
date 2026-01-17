@@ -219,140 +219,138 @@ class QuestionGenerationAgent:
         learner_profile: Dict[str, Any],
         context: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Generate multiple questions using LLM in a single call"""
+        """
+        Generate multiple questions using LLM in a single call
+        Uses rigorous academic prompts with XML behavior instructions
+        """
         
         # Combine content from multiple chunks
-        combined_content = "\n\n".join([
+        combined_content = "\n\n---\n\n".join([
             c.get("content", "") for c in content_chunks[:5]
-        ])[:3000]  # Limit content length
+        ])[:4000]  # Increased limit for better context
         
-        # Build adaptive learning context
-        weakness_note = ""
+        # Extract learner profile data
         weaknesses = learner_profile.get("weaknesses", [])
-        if weaknesses:
-            weakness_note = f"The learner struggles with: {', '.join(weaknesses[:3])}. Include questions that help address these weaknesses."
+        recent_accuracy = learner_profile.get("recent_accuracy", 50)
         
-        # Check for previous attempts and weak concepts
+        # Check for previous attempts
         previous_attempts = context.get("previous_attempts", {})
-        adaptive_note = ""
-        if previous_attempts.get("should_focus_weaknesses"):
-            weak_concepts = previous_attempts.get("weak_concepts", [])
-            attempt_count = previous_attempts.get("count", 0)
-            if weak_concepts:
-                adaptive_note = f"""
-ADAPTIVE LEARNING CONTEXT:
-This learner has attempted this topic {attempt_count} time(s) before.
-They have struggled with these concepts in previous attempts: {', '.join(weak_concepts[:5])}
-IMPORTANT: Generate questions that specifically target and help reinforce understanding of these weak areas.
-Approximately {min(count // 2 + 1, count)} questions should focus on these weak concepts."""
+        weak_concepts = previous_attempts.get("weak_concepts", [])
+        previously_asked = previous_attempts.get("previously_asked_questions", [])
         
-        type_instructions = {
-            "mcq": """For each MCQ question, include 4 options (A, B, C, D) where exactly one is correct.
-Include plausible distractors based on common misconceptions.""",
-            "fill_in_blank": """For each fill-in-the-blank question, include the correct answer and acceptable alternatives.""",
-            "essay": """For each essay question, include a model answer outline and rubric criteria.""",
+        # Determine difficulty distribution based on learner performance
+        if recent_accuracy >= 80:
+            difficulty_distribution = "40% hard, 40% medium, 20% expert"
+            cognitive_focus = "analyze and evaluate"
+        elif recent_accuracy >= 60:
+            difficulty_distribution = "20% hard, 60% medium, 20% easy"
+            cognitive_focus = "apply and analyze"
+        else:
+            difficulty_distribution = "40% easy, 40% medium, 20% hard"
+            cognitive_focus = "understand and apply"
+        
+        # Type-specific output structure
+        type_structure = {
+            "mcq": '''For each question include:
+            "options": [
+                {"id": "A", "text": "Distractor: incomplete understanding", "is_correct": false},
+                {"id": "B", "text": "Distractor: common misconception", "is_correct": false},
+                {"id": "C", "text": "CORRECT answer (mark is_correct: true)", "is_correct": true},
+                {"id": "D", "text": "Distractor: wrong scope/reversed logic", "is_correct": false}
+            ]''',
+            "fill_in_blank": '''For each question include:
+            "blank_answer": "exact_term",
+            "acceptable_answers": ["primary", "synonym", "abbreviation"]''',
+            "essay": '''For each question include:
+            "model_answer": "Comprehensive answer covering all key points",
+            "rubric": {"conceptual_accuracy": "40%", "analysis": "30%", "application": "20%", "clarity": "10%"}'''
         }
         
-        # Generate a random seed for variation
-        import time
-        random_seed = int(time.time() * 1000) % 10000
-        
-        # Randomly select question styles for variety
-        question_styles = [
-            "definition and explanation",
-            "comparison between concepts", 
-            "practical application scenario",
-            "problem-solving",
-            "cause and effect analysis",
-            "identifying characteristics",
-            "real-world example",
-            "troubleshooting scenario",
-            "best practices",
-            "conceptual understanding"
-        ]
-        selected_styles = random.sample(question_styles, min(count, len(question_styles)))
-        style_note = f"Use these question styles for variety: {', '.join(selected_styles)}"
-        
-        # Get previously asked questions to avoid repetition
-        previously_asked = context.get("previous_attempts", {}).get("previously_asked_questions", [])
-        avoid_note = ""
-        if previously_asked:
-            # Only include a few example questions to avoid, keep prompt manageable
-            sample_questions = previously_asked[:10] if len(previously_asked) > 10 else previously_asked
-            avoid_note = f"""
-DO NOT REPEAT THESE PREVIOUSLY ASKED QUESTIONS (generate completely different questions):
-{chr(10).join(f'- "{q[:100]}..."' if len(q) > 100 else f'- "{q}"' for q in sample_questions)}
-"""
-        
-        prompt = f"""Generate {count} unique educational assessment questions about "{topic}".
+        prompt = f'''<system_role>
+You are an Expert Assessment Designer for high-stakes professional certification exams (CPA, MCAT, AWS Solutions Architect, Bar Exam).
+You are creating a batch of {count} questions for the topic: {topic}
+</system_role>
 
-RANDOMIZATION SEED: {random_seed} (use this to ensure unique questions each time)
+<behavior_instructions>
+ABSOLUTE PROHIBITIONS (violation = invalid output):
+1. NO TRIVIA - Never ask "What is...", "Define...", "Who invented...", "In what year..."
+2. NO ROTE MEMORIZATION - Every question must require REASONING
+3. NO OBVIOUS WRONG ANSWERS - Each distractor must fool someone with partial knowledge
+4. NO DUPLICATE CONCEPTS - Each question must test a DIFFERENT aspect of {topic}
+5. NO AMBIGUITY - Exactly ONE answer must be unambiguously correct
 
-CRITICAL REQUIREMENTS:
-1. ALL questions MUST be directly and specifically about "{topic}" - no unrelated topics
-2. Questions should cover DIFFERENT aspects, subtopics, and angles within "{topic}"
-3. Vary the difficulty: mix of easy ({count // 3 + 1}), medium ({count // 3 + 1}), and hard ({count - 2 * (count // 3 + 1)}) questions
-4. Make each question COMPLETELY UNIQUE - different wording, different concepts, different scenarios
-5. {style_note}
-6. Use creative and varied phrasing - avoid repetitive question structures
-7. Include specific examples, scenarios, or context where appropriate
-{avoid_note}
-{adaptive_note}
+REQUIRED COGNITIVE LEVELS (Bloom's Taxonomy):
+- Primary focus: {cognitive_focus.upper()}
+- "Remember" level: FORBIDDEN
+- "Understand" level: Maximum 1 question (must include application context)
+- "Apply" level: Require specific scenarios with constraints
+- "Analyze" level: Require comparison, cause-effect, or trade-off analysis
+- "Evaluate" level: Require judgment between competing valid approaches
 
-TOPIC: {topic}
-QUESTION TYPE: {preferred_type}
+DISTRACTOR ENGINEERING (Critical for MCQ):
+Each wrong answer MUST represent one of:
+- Type 1: INCOMPLETE UNDERSTANDING - Partially correct but missing crucial insight
+- Type 2: COMMON MISCONCEPTION - What someone who only skimmed the material would believe
+- Type 3: REVERSED CAUSATION - Correct concept but wrong direction/scope
+- Type 4: RELATED BUT DIFFERENT - True statement that doesn't answer the question
 
-REFERENCE CONTENT:
-{combined_content if combined_content else f'General educational content about {topic}'}
+DIFFICULTY DISTRIBUTION: {difficulty_distribution}
+</behavior_instructions>
 
-{type_instructions.get(preferred_type, type_instructions['mcq'])}
+<content_context>
+REFERENCE MATERIAL (base questions on this content):
+{combined_content if combined_content else f'Use established professional knowledge of {topic}'}
 
-{weakness_note}
+{f'ADAPTIVE FOCUS - Target these weak areas: {", ".join(weak_concepts[:5])}' if weak_concepts else ''}
+{f'LEARNER WEAKNESSES: {", ".join(weaknesses[:3])}' if weaknesses else ''}
+</content_context>
 
-DIVERSITY GUIDELINES:
-- Each question should test a different concept or subtopic within {topic}
-- Vary the cognitive level: some recall, some application, some analysis
-- Use different question formats: "What is...", "Which of the following...", "In a scenario where...", "Why does...", "How would you..."
-- Include both theoretical and practical questions
+<avoid_repetition>
+{f'DO NOT repeat or closely paraphrase these previously asked questions:{chr(10).join(f"- {q[:80]}..." for q in previously_asked[:5])}' if previously_asked else 'No previous questions to avoid.'}
+</avoid_repetition>
 
-Respond with a JSON object containing a "questions" array with exactly {count} questions:
+<output_format>
+Generate EXACTLY {count} questions in this JSON structure:
 {{
     "questions": [
         {{
-            "question_text": "Question about {topic}",
-            "question_context": "Optional context",
-            "difficulty": "easy|medium|hard",
-            "options": [  // For MCQ
-                {{"id": "A", "text": "Option A", "is_correct": false}},
-                {{"id": "B", "text": "Option B", "is_correct": true}},
-                {{"id": "C", "text": "Option C", "is_correct": false}},
-                {{"id": "D", "text": "Option D", "is_correct": false}}
-            ],
-            "blank_answer": "answer",  // For fill_in_blank
-            "acceptable_answers": ["answer1", "answer2"],
-            "model_answer": "Full answer",  // For essay
-            "rubric": {{}},
-            "concepts": ["concept1"],
-            "explanation": "Why this is correct",
+            "question_text": "Scenario-based question requiring analysis of {topic}",
+            "question_context": "Specific constraints, values, or stakeholder perspectives",
+            {type_structure.get(preferred_type, type_structure['mcq'])},
+            "concepts": ["primary_concept_tested", "secondary_concept"],
+            "explanation": "TEACHING explanation: (1) Why correct is correct, (2) Why each distractor is wrong, (3) Underlying principle",
+            "difficulty": "easy|medium|hard|expert",
+            "cognitive_level": "apply|analyze|evaluate",
             "points": 10,
-            "time_limit_seconds": 60,
-            "targets_weakness": true|false  // Whether this targets a known weak area
+            "time_limit_seconds": 90
         }}
     ]
 }}
 
-Ensure all {count} questions are unique and progressively cover different aspects of "{topic}"."""
+CRITICAL: The "explanation" must TEACH the concept, not just state facts.
+</output_format>
+
+<quality_checklist>
+Before outputting, verify for EACH question:
+[ ] Tests a DIFFERENT aspect of {topic} (no conceptual overlap)
+[ ] Requires {cognitive_focus} - not just recall
+[ ] Has specific scenario/constraints (not abstract)
+[ ] For MCQ: Each distractor is wrong for a DIFFERENT reason
+[ ] Explanation teaches the underlying principle
+[ ] Could appear on a professional certification exam
+</quality_checklist>'''
 
         try:
             if hasattr(self.llm_client, 'chat'):
-                logger.info(f"[QuestionGen] Using OpenAI for batch generation")
+                logger.info(f"[QuestionGen] Using OpenAI for batch generation ({count} questions)")
                 response = await self.llm_client.chat.completions.create(
                     model=settings.openai_model,
                     messages=[
-                        {"role": "system", "content": self.backstory},
+                        {"role": "system", "content": "You are an expert assessment designer. Output valid JSON only."},
                         {"role": "user", "content": prompt}
                     ],
-                    response_format={"type": "json_object"}
+                    response_format={"type": "json_object"},
+                    temperature=0.7
                 )
                 return self._parse_batch_questions(
                     response.choices[0].message.content,
@@ -362,12 +360,12 @@ Ensure all {count} questions are unique and progressively cover different aspect
                 )
             
             elif hasattr(self.llm_client, 'generate_content'):
-                logger.info(f"[QuestionGen] Using Gemini for batch generation")
+                logger.info(f"[QuestionGen] Using Gemini for batch generation ({count} questions)")
                 loop = asyncio.get_event_loop()
                 response = await loop.run_in_executor(
                     None,
                     lambda: self.llm_client.generate_content(
-                        f"{prompt}\n\nRespond with valid JSON only, no markdown formatting."
+                        f"{prompt}\n\nIMPORTANT: Respond with valid JSON only. No markdown code blocks. No explanatory text before or after the JSON."
                     )
                 )
                 logger.info(f"[QuestionGen] Gemini batch response received")
@@ -381,20 +379,32 @@ Ensure all {count} questions are unique and progressively cover different aspect
         except Exception as e:
             logger.error(f"[QuestionGen] LLM batch generation failed: {e}", exc_info=True)
         
-        # Fallback to generating individually
-        logger.warning(f"[QuestionGen] Falling back to individual generation")
+        # Fallback: Try individual LLM generation before rule-based
+        logger.warning(f"[QuestionGen] Batch failed, attempting individual LLM generation")
         questions = []
         for i in range(count):
-            difficulties = ["easy", "medium", "medium", "hard", "medium"]
-            content = content_chunks[i % len(content_chunks)].get("content", "") if content_chunks else ""
-            question = self._rule_based_generate_question(
-                content=content,
-                question_type=preferred_type,
-                difficulty=difficulties[i % len(difficulties)],
-                topic=topic
-            )
-            question["batch_index"] = i
-            questions.append(question)
+            try:
+                content = content_chunks[i % len(content_chunks)].get("content", "") if content_chunks else ""
+                question = await self._llm_generate_question(
+                    content=content,
+                    question_type=preferred_type,
+                    difficulty=["easy", "medium", "medium", "hard", "medium"][i % 5],
+                    topic=topic,
+                    context=context
+                )
+                question["batch_index"] = i
+                questions.append(question)
+            except Exception as e:
+                logger.warning(f"[QuestionGen] Individual LLM gen failed for question {i}: {e}")
+                # Final fallback: academic template
+                question = self._academic_template_question(
+                    topic=topic,
+                    question_type=preferred_type,
+                    difficulty=["easy", "medium", "medium", "hard", "medium"][i % 5],
+                    index=i
+                )
+                question["batch_index"] = i
+                questions.append(question)
         return questions
     
     def _parse_batch_questions(
@@ -438,7 +448,6 @@ Ensure all {count} questions are unique and progressively cover different aspect
                     "acceptable_answers": q.get("acceptable_answers", []),
                     "model_answer": q.get("model_answer"),
                     "rubric": q.get("rubric"),
-                    "difficulty": q.get("difficulty", "medium"),
                     "concepts": q.get("concepts", [topic]),
                     "explanation": q.get("explanation"),
                     "points": q.get("points", 10),
@@ -452,7 +461,6 @@ Ensure all {count} questions are unique and progressively cover different aspect
                 fallback = self._rule_based_generate_question(
                     content="",
                     question_type=question_type,
-                    difficulty="medium",
                     topic=topic
                 )
                 fallback["batch_index"] = len(questions)
@@ -468,7 +476,6 @@ Ensure all {count} questions are unique and progressively cover different aspect
                 fallback = self._rule_based_generate_question(
                     content="",
                     question_type=question_type,
-                    difficulty="medium",
                     topic=topic
                 )
                 fallback["batch_index"] = i
@@ -626,90 +633,128 @@ Ensure all {count} questions are unique and progressively cover different aspect
         topic: str,
         context: Dict[str, Any]
     ) -> str:
-        """Build the prompt for question generation"""
+        """
+        Build rigorous prompt for question generation using XML behavior instructions
+        Designed for Gemini/Claude compliance with strict academic standards
+        """
         
         import time
         random_seed = int(time.time() * 1000) % 10000
         
-        type_instructions = {
-            "mcq": """Generate a multiple-choice question with 4 options (A, B, C, D).
-One option must be correct. Include plausible distractors based on common misconceptions.""",
-            "fill_in_blank": """Generate a fill-in-the-blank question.
-The blank should test understanding of a key concept. Provide the correct answer and acceptable alternatives.""",
-            "essay": """Generate an open-ended essay question.
-Provide a model answer and rubric criteria for evaluation.""",
+        # Extract learner profile data for adaptive difficulty
+        learner_profile = context.get("learner_profile", {})
+        recent_accuracy = learner_profile.get("recent_accuracy", 50)
+        weaknesses = learner_profile.get("weaknesses", [])
+        
+        # Determine cognitive level based on difficulty and accuracy
+        cognitive_mapping = {
+            "easy": "understand",
+            "medium": "apply",
+            "hard": "analyze",
+            "expert": "evaluate"
+        }
+        target_cognitive_level = cognitive_mapping.get(difficulty, "apply")
+        
+        # If learner has high accuracy, increase cognitive demand
+        if recent_accuracy > 80:
+            cognitive_upgrade = {"understand": "apply", "apply": "analyze", "analyze": "evaluate", "evaluate": "evaluate"}
+            target_cognitive_level = cognitive_upgrade.get(target_cognitive_level, target_cognitive_level)
+        
+        # Difficulty-specific requirements
+        difficulty_requirements = {
+            "easy": "Single-concept application. Clear scenario with minimal confounding variables.",
+            "medium": "Multi-step reasoning required. Integrate 2-3 related concepts.",
+            "hard": "Complex scenario with trade-offs. Requires synthesis across multiple principles.",
+            "expert": "Novel situation requiring deep expertise. Multi-step analysis with edge cases."
         }
         
-        difficulty_guidance = {
-            "easy": "Focus on recall and basic understanding. Use straightforward language.",
-            "medium": "Require application of concepts. Include some complexity.",
-            "hard": "Require analysis and evaluation. Include nuanced scenarios.",
+        # Type-specific output format
+        type_formats = {
+            "mcq": '''"options": [
+        {"id": "A", "text": "Plausible distractor representing incomplete understanding", "is_correct": false},
+        {"id": "B", "text": "Distractor based on common misconception", "is_correct": false},
+        {"id": "C", "text": "Correct answer with full technical accuracy", "is_correct": true},
+        {"id": "D", "text": "Distractor with reversed cause-effect or wrong scope", "is_correct": false}
+    ]''',
+            "fill_in_blank": '''"blank_answer": "exact_technical_term",
+    "acceptable_answers": ["primary_term", "acceptable_synonym", "abbreviated_form"]''',
+            "essay": '''"model_answer": "Comprehensive model answer covering all key points",
+    "rubric": {
+        "conceptual_accuracy": "40% - Correct application of core principles",
+        "analytical_depth": "30% - Quality of analysis and reasoning", 
+        "practical_application": "20% - Real-world relevance",
+        "communication": "10% - Clarity and organization"
+    }'''
         }
         
-        # Randomly select a question style for variety
-        question_styles = [
-            "Ask about a definition or core concept",
-            "Present a practical scenario or use case",
-            "Compare two related concepts",
-            "Ask about best practices or common patterns",
-            "Present a problem-solving scenario",
-            "Ask about advantages or disadvantages",
-            "Test understanding of a process or workflow",
-            "Ask about real-world applications",
-        ]
-        selected_style = random.choice(question_styles)
-        
-        learner_weaknesses = context.get("learner_profile", {}).get("weaknesses", [])
-        weakness_note = f"The learner struggles with: {', '.join(learner_weaknesses)}" if learner_weaknesses else ""
-        
-        prompt = f"""Generate an educational assessment question based on the following:
+        prompt = f'''<system_role>
+You are an Expert Subject Matter Examiner for high-stakes professional assessments (CPA, MCAT, AWS Professional, Bar Exam level). You have 20+ years of experience designing questions for {topic}.
+</system_role>
 
-RANDOMIZATION SEED: {random_seed} (use this for variety)
+<behavior_instructions>
+ABSOLUTE PROHIBITIONS:
+1. NO TRIVIA QUESTIONS - Never ask "What is...", "Define...", "Who invented...", "What year..."
+2. NO ROTE MEMORIZATION - Questions must require reasoning, not recall
+3. NO OBVIOUS DISTRACTORS - Every wrong option must be plausible to someone with partial knowledge
+4. NO AMBIGUOUS CORRECT ANSWERS - Exactly one answer must be unambiguously correct
 
-CRITICAL: The question MUST be about "{topic}". Do NOT generate questions about other topics.
+REQUIRED BEHAVIORS:
+1. BLOOM'S TAXONOMY COMPLIANCE - Target cognitive level: {target_cognitive_level.upper()}
+   - Remember/Understand: FORBIDDEN for this assessment
+   - Apply: Minimum acceptable level - use in concrete scenarios
+   - Analyze: Break down complex situations, identify relationships
+   - Evaluate: Judge between competing approaches with trade-offs
+   - Create: Design solutions (for essay only)
 
-TOPIC (REQUIRED): {topic}
-QUESTION TYPE: {question_type}
-DIFFICULTY: {difficulty}
-QUESTION STYLE: {selected_style}
+2. DISTRACTOR ENGINEERING (for MCQ):
+   - Distractor A: Represents INCOMPLETE understanding (partially correct but missing key insight)
+   - Distractor B: Represents COMMON MISCONCEPTION (what a beginner typically believes)
+   - Distractor C or D: Represents REVERSED LOGIC or WRONG SCOPE (correct concept, wrong application)
+   - The correct answer must be defensible with evidence from the content
 
-REFERENCE CONTENT (for context only):
-{content[:1500] if content else f'General educational content about {topic}'}
+3. SCENARIO-BASED FRAMING:
+   - Every question MUST include a realistic scenario or constraint
+   - Use specific values, conditions, or stakeholder perspectives
+   - Avoid abstract "in general" questions
 
-TYPE INSTRUCTIONS:
-{type_instructions.get(question_type, type_instructions['mcq'])}
+4. ADAPTIVE RIGOR:
+   - Difficulty: {difficulty.upper()}
+   - Requirement: {difficulty_requirements.get(difficulty, "Multi-step reasoning required")}
+   {'- FOCUS ON WEAKNESSES: ' + ', '.join(weaknesses[:3]) if weaknesses else ''}
+</behavior_instructions>
 
-DIFFICULTY GUIDANCE:
-{difficulty_guidance.get(difficulty, difficulty_guidance['medium'])}
+<content_context>
+Topic: {topic}
+Question Type: {question_type}
 
-{weakness_note}
+REFERENCE MATERIAL:
+{content[:3000] if content else f'Generate based on established professional knowledge of {topic}'}
+</content_context>
 
-IMPORTANT RULES:
-1. The question MUST be directly related to "{topic}"
-2. Use the specified QUESTION STYLE to guide the question format
-3. Make the question unique and interesting - avoid generic phrasing
-4. Do NOT generate questions about unrelated topics
-5. Use the reference content as inspiration but ensure the question is about "{topic}"
-6. Make the question educationally valuable and appropriate for the difficulty level
-
-Respond in JSON format with:
+<output_format>
+Generate a JSON object with this EXACT structure:
 {{
-    "question_text": "The question text (MUST be about {topic})",
-    "question_context": "Optional additional context for the question",
-    "options": [  // For MCQ only
-        {{"id": "A", "text": "Option A", "is_correct": false}},
-        {{"id": "B", "text": "Option B", "is_correct": true}},
-        ...
-    ],
-    "blank_answer": "Correct answer",  // For fill_in_blank
-    "acceptable_answers": ["answer1", "answer2"],  // Variations
-    "model_answer": "Full model answer",  // For essay
-    "rubric": {{"criteria": "description"}},  // For essay
-    "concepts": ["concept1", "concept2"],
-    "explanation": "Why this is the correct answer",
+    "question_text": "Scenario-based question requiring {target_cognitive_level}-level thinking about {topic}",
+    "question_context": "Additional context, constraints, or scenario details if needed",
+    {type_formats.get(question_type, type_formats['mcq'])},
+    "concepts": ["primary_concept", "secondary_concept"],
+    "explanation": "Detailed explanation: (1) Why correct answer is correct, (2) Why each distractor is wrong, (3) The underlying principle being tested",
+    "difficulty": "{difficulty}",
+    "cognitive_level": "{target_cognitive_level}",
     "points": 10,
-    "time_limit_seconds": 60
-}}"""
+    "time_limit_seconds": {90 if question_type == "mcq" else 180 if question_type == "fill_in_blank" else 600}
+}}
+</output_format>
+
+<quality_checklist>
+Before outputting, verify:
+[ ] Question requires {target_cognitive_level.upper()}-level thinking, not just recall
+[ ] Scenario is specific and realistic for {topic}
+[ ] For MCQ: Each distractor represents a different type of error
+[ ] Correct answer is unambiguously correct based on the content
+[ ] Explanation teaches the underlying principle, not just states the answer
+[ ] Question reflects what would appear on a professional certification exam
+</quality_checklist>'''
         
         return prompt
     
@@ -787,48 +832,52 @@ Respond in JSON format with:
         self,
         content: str,
         question_type: str,
-        difficulty: str,
         topic: str
     ) -> Dict[str, Any]:
-        """Generate question using rules when LLM unavailable - creates unique questions based on content"""
+        """Generate professional-quality question using rules when LLM unavailable"""
         
         # Extract key concepts from content for more relevant questions
         content_words = content.lower().split() if content else []
-        # Filter to meaningful words (longer than 3 chars, not common words)
         common_words = {'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'her', 'was', 'one', 'our', 'out', 'this', 'that', 'with', 'have', 'from', 'they', 'been', 'has', 'were', 'said', 'each', 'which', 'their', 'will', 'way', 'about', 'many', 'then', 'them', 'these', 'some', 'would', 'make', 'like', 'into', 'time', 'very', 'when', 'come', 'made', 'find', 'more', 'long', 'him', 'how', 'its', 'may', 'did', 'get', 'than', 'now', 'what', 'over', 'such', 'use'}
         key_concepts = [w for w in content_words if len(w) > 4 and w not in common_words][:10]
         
         import random
         import hashlib
+        import time
         
-        # Create deterministic but unique seed based on topic and content
-        seed_str = f"{topic}_{content[:100] if content else 'default'}"
+        # Create unique seed based on topic, content, and current time for variety
+        seed_str = f"{topic}_{content[:100] if content else 'default'}_{int(time.time())}"
         seed = int(hashlib.md5(seed_str.encode()).hexdigest()[:8], 16)
         rng = random.Random(seed)
         
         if question_type == "mcq":
-            # Generate varied MCQ questions based on topic
+            # Professional-level MCQ templates - application and analysis focused
             mcq_templates = [
-                (f"What is the primary purpose of {topic}?",
-                 [f"To provide a structured approach to understanding {topic}", 
-                  "To replace all existing methods", 
-                  "It has no specific purpose", 
-                  "To complicate simple processes"]),
-                (f"Which statement about {topic} is most accurate?",
-                 [f"{topic} is essential for building foundational knowledge",
-                  f"{topic} is rarely used in practice",
-                  f"{topic} has been completely replaced by newer concepts",
-                  f"{topic} is only theoretical with no applications"]),
-                (f"In the context of {topic}, what is considered a best practice?",
-                 ["Understanding core principles before advanced topics",
-                  "Skipping foundational concepts",
-                  "Memorizing without understanding",
-                  "Avoiding practical applications"]),
-                (f"How does {topic} relate to problem-solving?",
-                 [f"{topic} provides frameworks for systematic problem-solving",
-                  f"{topic} is unrelated to problem-solving",
-                  f"{topic} makes problems more complex",
-                  f"{topic} should be avoided when solving problems"]),
+                (f"In a professional context, which approach would be MOST effective when implementing {topic}?",
+                 [f"Systematic application of {topic} principles with iterative validation",
+                  f"Rapid implementation without planning phases",
+                  f"Complete avoidance of established {topic} methodologies",
+                  f"Implementing only the simplest aspects while ignoring complex requirements"]),
+                (f"When analyzing a system that utilizes {topic}, which factor is MOST critical for optimization?",
+                 [f"Understanding the core mechanisms and their interactions within {topic}",
+                  f"Focusing solely on surface-level metrics",
+                  f"Ignoring performance considerations entirely",
+                  f"Applying random modifications without analysis"]),
+                (f"A senior engineer discovers a performance bottleneck related to {topic}. What is the recommended first step?",
+                 [f"Analyze the {topic} implementation to identify the root cause",
+                  f"Immediately rewrite the entire system",
+                  f"Ignore the issue if it doesn't cause crashes",
+                  f"Add more resources without investigation"]),
+                (f"Which statement BEST describes an advanced application of {topic}?",
+                 [f"{topic} can be leveraged for complex problem-solving when properly understood",
+                  f"{topic} is only suitable for trivial applications",
+                  f"{topic} cannot be combined with other methodologies",
+                  f"{topic} provides no practical benefits in real systems"]),
+                (f"What distinguishes expert-level understanding of {topic} from beginner knowledge?",
+                 [f"Ability to apply {topic} concepts to novel situations and edge cases",
+                  f"Memorization of basic definitions only",
+                  f"Avoiding practical implementation entirely",
+                  f"Relying solely on default configurations"]),
             ]
             
             template = rng.choice(mcq_templates)
@@ -843,18 +892,18 @@ Respond in JSON format with:
                     {"id": chr(65 + i), "text": opt, "is_correct": opt == correct_answer}
                     for i, opt in enumerate(options)
                 ],
-                "difficulty": difficulty,
                 "concepts": [topic] + key_concepts[:3],
+                "explanation": f"Understanding {topic} at a professional level requires systematic application and deep analysis of core principles.",
                 "points": 10,
-                "time_limit_seconds": 60,
+                "time_limit_seconds": 90,
             }
         
         elif question_type == "fill_in_blank":
             fill_templates = [
-                (f"A key principle in {topic} is the concept of _______.", topic),
-                (f"When working with {topic}, it's important to first understand the _______.", "fundamentals"),
-                (f"The main goal of studying {topic} is to develop _______ skills.", "analytical"),
-                (f"In {topic}, _______ is considered essential for mastery.", "practice"),
+                (f"When optimizing {topic} implementations, the technique of _______ is commonly used to improve performance.", "profiling"),
+                (f"In {topic}, the principle of _______ helps ensure maintainable and scalable solutions.", "modularity"),
+                (f"A critical consideration when working with {topic} at scale is proper _______ management.", "resource"),
+                (f"Expert practitioners of {topic} recommend _______ as a best practice for complex implementations.", "documentation"),
             ]
             
             template = rng.choice(fill_templates)
@@ -863,19 +912,19 @@ Respond in JSON format with:
                 "question_type": "fill_in_blank",
                 "question_text": template[0],
                 "blank_answer": template[1],
-                "acceptable_answers": [template[1].lower(), template[1].upper(), template[1].capitalize()],
-                "difficulty": difficulty,
+                "acceptable_answers": [template[1], template[1].lower(), template[1].capitalize()],
                 "concepts": [topic],
+                "explanation": f"This term is fundamental to professional {topic} implementation.",
                 "points": 10,
-                "time_limit_seconds": 45,
+                "time_limit_seconds": 60,
             }
         
         else:  # essay
             essay_templates = [
-                f"Explain the key concepts of {topic} and describe how they can be applied in a real-world scenario.",
-                f"Discuss the importance of {topic} in your field of study. Provide specific examples.",
-                f"Compare and contrast different approaches to understanding {topic}. What are the advantages of each?",
-                f"Describe a situation where knowledge of {topic} would be essential. Explain your reasoning.",
+                f"Analyze the trade-offs involved when implementing {topic} in a large-scale system. Discuss performance, maintainability, and scalability considerations.",
+                f"Compare two different approaches to implementing {topic}. Evaluate their strengths, weaknesses, and appropriate use cases.",
+                f"Describe a scenario where {topic} would be the optimal solution and another where it might be problematic. Justify your reasoning.",
+                f"Design a solution using {topic} for a complex real-world problem. Explain your architectural decisions and potential challenges.",
             ]
             
             question = rng.choice(essay_templates)
@@ -883,32 +932,232 @@ Respond in JSON format with:
             return {
                 "question_type": "essay",
                 "question_text": question,
-                "model_answer": f"A comprehensive answer about {topic} should include: 1) Clear explanation of core concepts, 2) Relevant examples and applications, 3) Critical analysis of the topic's importance.",
+                "model_answer": f"A comprehensive answer should include: 1) Technical analysis of {topic} principles, 2) Specific trade-offs and their implications, 3) Real-world considerations and constraints, 4) Evidence-based recommendations.",
                 "rubric": {
-                    "understanding": "Demonstrates clear understanding of core concepts",
-                    "application": "Provides relevant real-world examples",
-                    "analysis": "Shows critical thinking and analysis",
-                    "clarity": "Well-organized and clearly expressed",
+                    "technical_accuracy": "Demonstrates deep technical understanding (30%)",
+                    "analysis": "Provides thorough analysis of trade-offs (25%)",
+                    "practical_application": "Relates concepts to real-world scenarios (25%)",
+                    "clarity": "Well-organized with clear argumentation (20%)",
                 },
-                "difficulty": difficulty,
                 "concepts": [topic] + key_concepts[:2],
-                "points": 20,
-                "time_limit_seconds": 300,
+                "points": 25,
+                "time_limit_seconds": 600,
             }
     
     def _fallback_question(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Generate fallback question when all else fails - still topic-aware"""
         topic = context.get("topic", "the subject")
         question_type = context.get("preferred_type", "mcq")
-        difficulty = context.get("current_difficulty", "medium")
         
-        # Use rule-based generation which now creates varied questions
-        return self._rule_based_generate_question(
-            content=f"Educational content about {topic}",
+        # Use academic template generation for rigorous fallback
+        return self._academic_template_question(
+            topic=topic,
             question_type=question_type,
-            difficulty=difficulty,
-            topic=topic
+            difficulty="medium",
+            index=0
         )
+    
+    def _academic_template_question(
+        self,
+        topic: str,
+        question_type: str,
+        difficulty: str,
+        index: int
+    ) -> Dict[str, Any]:
+        """
+        Generate rigorous academic template questions
+        
+        These templates are designed based on professional certification exam formats
+        (CPA, MCAT, AWS, etc.) and follow strict academic assessment principles.
+        
+        Used as final fallback when LLM generation fails.
+        """
+        import hashlib
+        import time
+        
+        # Create deterministic but varied seed based on topic and index
+        seed_str = f"{topic}_{index}_{int(time.time() / 60)}"  # Changes every minute
+        seed = int(hashlib.md5(seed_str.encode()).hexdigest()[:8], 16)
+        rng = random.Random(seed)
+        
+        # Domain-specific template banks
+        templates = {
+            "mcq": {
+                "technical": [
+                    {
+                        "pattern": "scenario_analysis",
+                        "question": f"A development team is implementing a solution using {topic}. During code review, they discover that [Approach A] was used instead of the recommended [Approach B]. What is the MOST significant implication of this decision?",
+                        "options": [
+                            ("The system may exhibit [specific degradation pattern] under [specific conditions], requiring refactoring", True),
+                            ("There will be no noticeable difference in behavior or performance", False),
+                            ("The code will fail to compile due to syntax errors", False),
+                            ("All unit tests will automatically fail regardless of implementation", False),
+                        ],
+                        "explanation": "This question tests understanding of implementation trade-offs in {topic}. The correct answer addresses the nuanced performance implications, while distractors represent common oversimplifications."
+                    },
+                    {
+                        "pattern": "troubleshooting",
+                        "question": f"A production system using {topic} exhibits intermittent failures characterized by [Symptom X]. Diagnostic logs show [Pattern Y]. Which root cause is MOST consistent with these observations?",
+                        "options": [
+                            ("Resource contention occurring when [Condition A] coincides with [Condition B]", True),
+                            ("Hardware failure that would cause consistent, not intermittent, issues", False),
+                            ("User input errors that would be caught by validation", False),
+                            ("Network latency that would affect all operations equally", False),
+                        ],
+                        "explanation": "Effective troubleshooting of {topic} requires correlating symptoms with underlying mechanisms. The correct answer identifies the condition that explains the intermittent nature of the failure."
+                    },
+                    {
+                        "pattern": "optimization",
+                        "question": f"When optimizing a {topic} implementation for high-throughput scenarios, which strategy provides the BEST balance between performance gain and implementation complexity?",
+                        "options": [
+                            ("Implement targeted caching at the critical path identified through profiling", True),
+                            ("Add parallel processing to all operations regardless of bottleneck location", False),
+                            ("Increase hardware resources without code changes", False),
+                            ("Remove all validation and error handling to reduce overhead", False),
+                        ],
+                        "explanation": "Optimization in {topic} should be evidence-based. The correct approach targets identified bottlenecks rather than applying blanket changes."
+                    },
+                    {
+                        "pattern": "comparison",
+                        "question": f"When comparing [Method 1] and [Method 2] for implementing {topic}, under which conditions would [Method 1] be clearly preferred?",
+                        "options": [
+                            ("When [Constraint A] is present and [Requirement B] is critical to the use case", True),
+                            ("In all circumstances, as [Method 1] is universally superior", False),
+                            ("Only when budget constraints prevent using any solution", False),
+                            ("When backwards compatibility is completely irrelevant", False),
+                        ],
+                        "explanation": "Method selection in {topic} depends on context. The correct answer identifies specific conditions, while distractors represent absolutist or irrelevant criteria."
+                    },
+                    {
+                        "pattern": "edge_case",
+                        "question": f"In a {topic} implementation, what is the expected behavior when [Edge Condition E] is encountered during [Operation O]?",
+                        "options": [
+                            ("The system should [graceful handling behavior] and [recovery action]", True),
+                            ("The system should crash immediately to prevent data corruption", False),
+                            ("Edge conditions are theoretical and never occur in practice", False),
+                            ("The behavior is undefined and implementation-specific", False),
+                        ],
+                        "explanation": "Understanding edge cases in {topic} distinguishes expert practitioners. The correct answer demonstrates knowledge of proper error handling patterns."
+                    }
+                ]
+            },
+            "fill_in_blank": {
+                "technical": [
+                    {
+                        "question": f"In {topic}, the principle of _______ ensures that changes to one component do not unexpectedly affect other components.",
+                        "answer": "encapsulation",
+                        "alternatives": ["abstraction", "isolation", "modularity"]
+                    },
+                    {
+                        "question": f"When scaling {topic} implementations, _______ is the technique of distributing load across multiple instances.",
+                        "answer": "load balancing",
+                        "alternatives": ["horizontal scaling", "distribution", "partitioning"]
+                    },
+                    {
+                        "question": f"The _______ pattern in {topic} allows for lazy initialization and controlled access to expensive resources.",
+                        "answer": "singleton",
+                        "alternatives": ["factory", "proxy", "lazy loading"]
+                    },
+                    {
+                        "question": f"In professional {topic} development, _______ testing verifies that individual components work correctly in isolation.",
+                        "answer": "unit",
+                        "alternatives": ["component", "module", "isolated"]
+                    }
+                ]
+            },
+            "essay": {
+                "technical": [
+                    {
+                        "question": f"You are tasked with migrating a legacy system to use modern {topic} practices. The system has significant technical debt and limited documentation. Describe your approach, including: (1) assessment methodology, (2) migration strategy, (3) risk mitigation, and (4) success metrics.",
+                        "rubric": {
+                            "assessment_methodology": "25% - Demonstrates systematic approach to understanding existing system",
+                            "migration_strategy": "30% - Presents feasible, phased approach with clear milestones",
+                            "risk_mitigation": "25% - Identifies key risks and proposes concrete mitigation strategies",
+                            "success_metrics": "20% - Defines measurable criteria for migration success"
+                        }
+                    },
+                    {
+                        "question": f"Analyze a scenario where two valid approaches to {topic} appear to conflict. Describe: (1) the apparent conflict, (2) underlying principles that explain when each approach is appropriate, (3) a decision framework for choosing between them, and (4) potential hybrid approaches.",
+                        "rubric": {
+                            "conflict_analysis": "25% - Clearly articulates the apparent conflict and its context",
+                            "principles": "25% - Demonstrates deep understanding of underlying concepts",
+                            "decision_framework": "25% - Provides practical, applicable framework for decisions",
+                            "synthesis": "25% - Shows ability to integrate approaches when appropriate"
+                        }
+                    }
+                ]
+            }
+        }
+        
+        difficulty_modifiers = {
+            "easy": " Consider a straightforward case where standard conditions apply.",
+            "medium": " Assume typical production constraints apply.",
+            "hard": " Consider a complex scenario with multiple interacting factors.",
+            "expert": " Address edge cases and non-obvious interactions."
+        }
+        
+        if question_type == "mcq":
+            template_bank = templates["mcq"]["technical"]
+            template = template_bank[index % len(template_bank)]
+            
+            # Add difficulty modifier to question
+            question_text = template["question"] + difficulty_modifiers.get(difficulty, "")
+            
+            # Prepare options with correct shuffling
+            options = [(opt[0].replace("{topic}", topic), opt[1]) for opt in template["options"]]
+            correct_text = next(opt[0] for opt in options if opt[1])
+            rng.shuffle(options)
+            
+            return {
+                "question_type": "mcq",
+                "question_text": question_text.replace("{topic}", topic),
+                "question_context": f"This question assesses {difficulty}-level understanding of {topic}.",
+                "options": [
+                    {"id": chr(65 + i), "text": opt[0], "is_correct": opt[1]}
+                    for i, opt in enumerate(options)
+                ],
+                "concepts": [topic, f"{topic} implementation", f"{topic} analysis"],
+                "explanation": template["explanation"].replace("{topic}", topic),
+                "difficulty": difficulty,
+                "cognitive_level": "analyze" if difficulty in ["hard", "expert"] else "apply",
+                "points": 10,
+                "time_limit_seconds": 90,
+                "source": "academic_template"
+            }
+        
+        elif question_type == "fill_in_blank":
+            template_bank = templates["fill_in_blank"]["technical"]
+            template = template_bank[index % len(template_bank)]
+            
+            return {
+                "question_type": "fill_in_blank",
+                "question_text": template["question"].replace("{topic}", topic) + difficulty_modifiers.get(difficulty, ""),
+                "blank_answer": template["answer"],
+                "acceptable_answers": [template["answer"]] + template["alternatives"],
+                "concepts": [topic],
+                "explanation": f"The term '{template['answer']}' is fundamental to professional {topic} practice.",
+                "difficulty": difficulty,
+                "points": 10,
+                "time_limit_seconds": 60,
+                "source": "academic_template"
+            }
+        
+        else:  # essay
+            template_bank = templates["essay"]["technical"]
+            template = template_bank[index % len(template_bank)]
+            
+            return {
+                "question_type": "essay",
+                "question_text": template["question"].replace("{topic}", topic),
+                "question_context": f"This is a {difficulty}-level analytical question about {topic}.",
+                "model_answer": f"A comprehensive response should address all four components specified in the question, demonstrating both theoretical understanding and practical application of {topic} principles.",
+                "rubric": template["rubric"],
+                "concepts": [topic, f"{topic} analysis", f"{topic} design"],
+                "difficulty": difficulty,
+                "points": 25,
+                "time_limit_seconds": 600,
+                "source": "academic_template"
+            }
     
     async def evaluate_response(
         self,

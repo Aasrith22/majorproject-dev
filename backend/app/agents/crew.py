@@ -311,6 +311,17 @@ class EduSynapseCrew:
             agent_statuses["query_analysis"]["processingTime"] = int((time.time() - start_time) * 1000)
             agent_statuses["query_analysis"]["status"] = "completed"
             logger.info(f"[Crew] Query Analysis complete: {query_analysis.get('topic', {})}")
+            
+            # Save detected subject area for custom topics
+            detected_subject = query_analysis.get("topic", {}).get("subject", "General")
+            if is_custom and detected_subject:
+                # Update session context with detected subject
+                from app.models.session import LearningSession
+                session = await LearningSession.get(session_id) if session_id != "unknown" else None
+                if session:
+                    session.session_context["detected_subject"] = detected_subject
+                    await session.save()
+            
             await asyncio.sleep(1.5)
             
             # Stage 2: Retrieve relevant content (once with more chunks)
