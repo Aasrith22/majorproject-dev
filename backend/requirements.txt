@@ -1,0 +1,37 @@
+# EduSynapse Backend Dependencies
+# FastAPI & Server
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Database
+motor==3.3.2
+pymongo==4.6.1
+beanie==1.25.0
+
+# LLM Providers
+openai==1.12.0
+google-generativeai==0.4.0
+
+# Authentication & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+pydantic[email]==2.6.1
+pydantic-settings==2.1.0
+
+# Utilities
+python-dotenv==1.0.1
+httpx==0.26.0
+aiofiles==23.2.1
+
+# Speech & OCR (Multimodal)
+SpeechRecognition==3.10.1
+pytesseract==0.3.10
+Pillow==10.2.0
+
+# Logging & Monitoring
+loguru==0.7.2
+
+# Vector Store & Embeddings
+sentence-transformers==2.2.2
+numpy>=1.24.0

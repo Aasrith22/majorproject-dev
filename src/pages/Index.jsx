@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Brain,
   BookOpen,
@@ -21,79 +22,154 @@ import {
   TrendingUp,
   Sparkles,
   ChevronRight,
+  Star,
+  Loader2,
 } from "lucide-react";
+import apiService from "@/services/unified-api.service.js";
 
-// CS Course Topics
-const csTopics = [
+// Default CS Course Topics - will be merged with custom topics from API
+const defaultTopics = [
   {
-    id: "dsa",
+    id: "data-structures-algorithms",
     name: "Data Structures & Algorithms",
     icon: GitBranch,
     description: "Arrays, Trees, Graphs, Sorting, Dynamic Programming",
     difficulty: "intermediate",
     progress: 45,
     color: "from-green-500 to-emerald-500",
+    isCustom: false,
   },
   {
-    id: "dbms",
+    id: "database-management",
     name: "Database Management Systems",
     icon: Database,
     description: "SQL, Normalization, Transactions, Indexing",
     difficulty: "intermediate",
     progress: 30,
     color: "from-blue-500 to-cyan-500",
+    isCustom: false,
   },
   {
-    id: "os",
+    id: "operating-systems",
     name: "Operating Systems",
     icon: Cpu,
     description: "Processes, Memory Management, File Systems, Scheduling",
     difficulty: "advanced",
     progress: 0,
     color: "from-purple-500 to-indigo-500",
+    isCustom: false,
   },
   {
-    id: "cn",
+    id: "computer-networks",
     name: "Computer Networks",
     icon: Network,
     description: "OSI Model, TCP/IP, Routing, Network Security",
     difficulty: "intermediate",
     progress: 60,
     color: "from-orange-500 to-yellow-500",
+    isCustom: false,
   },
   {
-    id: "oops",
+    id: "object-oriented-programming",
     name: "Object Oriented Programming",
     icon: Code,
     description: "Classes, Inheritance, Polymorphism, Design Patterns",
     difficulty: "beginner",
     progress: 85,
     color: "from-pink-500 to-rose-500",
+    isCustom: false,
   },
   {
-    id: "toc",
+    id: "theory-of-computation",
     name: "Theory of Computation",
     icon: Binary,
     description: "Automata, Regular Languages, Turing Machines",
     difficulty: "advanced",
     progress: 15,
     color: "from-red-500 to-orange-500",
+    isCustom: false,
   },
+];
+
+// Color palette for custom topics
+const customTopicColors = [
+  "from-cyan-500 to-blue-500",
+  "from-violet-500 to-purple-500",
+  "from-amber-500 to-orange-500",
+  "from-teal-500 to-green-500",
+  "from-rose-500 to-pink-500",
+  "from-indigo-500 to-blue-500",
 ];
 
 const Index = () => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
-  const [filteredTopics, setFilteredTopics] = useState(csTopics);
+  const [allTopics, setAllTopics] = useState(defaultTopics);
+  const [filteredTopics, setFilteredTopics] = useState(defaultTopics);
+  const [isLoading, setIsLoading] = useState(true);
+  const [customTopicsCount, setCustomTopicsCount] = useState(0);
 
+  // Load topics from API (includes custom topics)
   useEffect(() => {
-    const filtered = csTopics.filter(
+    const loadTopics = async () => {
+      try {
+        setIsLoading(true);
+        const apiTopics = await apiService.getTopics();
+        
+        // Merge API topics with default topics
+        const mergedTopics = [...defaultTopics];
+        let customCount = 0;
+        
+        // Add custom topics from API
+        if (apiTopics && apiTopics.length > 0) {
+          apiTopics.forEach((apiTopic, index) => {
+            // Check if it's a custom topic not already in defaults
+            const isInDefaults = defaultTopics.some(
+              dt => dt.name.toLowerCase() === apiTopic.name.toLowerCase()
+            );
+            
+            if (apiTopic.isCustom && !isInDefaults) {
+              customCount++;
+              mergedTopics.push({
+                id: apiTopic.id,
+                name: apiTopic.name,
+                icon: Star, // Custom topics get a star icon
+                description: apiTopic.description || `Custom topic: ${apiTopic.name}`,
+                difficulty: apiTopic.difficulty || "intermediate",
+                progress: apiTopic.sessionsCompleted > 0 ? Math.min(apiTopic.sessionsCompleted * 20, 100) : 0,
+                color: customTopicColors[index % customTopicColors.length],
+                isCustom: true,
+                sessionsCompleted: apiTopic.sessionsCompleted || 0,
+                lastStudied: apiTopic.lastStudied,
+              });
+            }
+          });
+        }
+        
+        setAllTopics(mergedTopics);
+        setFilteredTopics(mergedTopics);
+        setCustomTopicsCount(customCount);
+      } catch (error) {
+        console.error("Failed to load topics:", error);
+        setAllTopics(defaultTopics);
+        setFilteredTopics(defaultTopics);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadTopics();
+  }, []);
+
+  // Filter topics based on search
+  useEffect(() => {
+    const filtered = allTopics.filter(
       (topic) =>
         topic.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         topic.description.toLowerCase().includes(searchQuery.toLowerCase())
     );
     setFilteredTopics(filtered);
-  }, [searchQuery]);
+  }, [searchQuery, allTopics]);
 
   const getDifficultyColor = (difficulty) => {
     switch (difficulty) {
@@ -150,11 +226,17 @@ const Index = () => {
           <div className="flex justify-center gap-6 mb-12">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <BookOpen className="w-4 h-4 text-primary" />
-              <span>{csTopics.length} Courses Available</span>
+              <span>{allTopics.length} Courses Available</span>
             </div>
+            {customTopicsCount > 0 && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Star className="w-4 h-4 text-yellow-400" />
+                <span>{customTopicsCount} Custom Topics</span>
+              </div>
+            )}
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <TrendingUp className="w-4 h-4 text-green-400" />
-              <span>3 In Progress</span>
+              <span>{allTopics.filter(t => t.progress > 0).length} In Progress</span>
             </div>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Clock className="w-4 h-4 text-secondary" />
@@ -167,27 +249,52 @@ const Index = () => {
       {/* Topics Grid */}
       <section className="pb-24">
         <div className="container mx-auto px-4">
+          {isLoading ? (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <Card key={i} className="glass-card p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <Skeleton className="w-12 h-12 rounded-xl" />
+                    <Skeleton className="w-20 h-6 rounded-full" />
+                  </div>
+                  <Skeleton className="h-6 w-3/4 mb-2" />
+                  <Skeleton className="h-4 w-full mb-4" />
+                  <Skeleton className="h-2 w-full" />
+                </Card>
+              ))}
+            </div>
+          ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredTopics.map((topic) => {
               const Icon = topic.icon;
               return (
                 <Card
                   key={topic.id}
-                  className="glass-card p-6 hover:scale-[1.02] transition-all duration-300 cursor-pointer group"
-                  onClick={() => navigate(`/learn?topic=${topic.id}`)}
+                  className="glass-card p-6 hover:scale-[1.02] transition-all duration-300 cursor-pointer group relative"
+                  onClick={() => navigate(`/learn?topic=${encodeURIComponent(topic.name)}`)}
                 >
+                  {/* Custom Topic Badge */}
+                  {topic.isCustom && (
+                    <Badge className="absolute top-2 right-2 bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
+                      <Star className="w-3 h-3 mr-1" />
+                      Custom
+                    </Badge>
+                  )}
+                  
                   <div className="flex items-start justify-between mb-4">
                     <div
                       className={`w-12 h-12 rounded-xl bg-gradient-to-br ${topic.color} flex items-center justify-center group-hover:animate-glow`}
                     >
                       <Icon className="w-6 h-6 text-white" />
                     </div>
-                    <Badge
-                      variant="outline"
-                      className={getDifficultyColor(topic.difficulty)}
-                    >
-                      {topic.difficulty}
-                    </Badge>
+                    {!topic.isCustom && (
+                      <Badge
+                        variant="outline"
+                        className={getDifficultyColor(topic.difficulty)}
+                      >
+                        {topic.difficulty}
+                      </Badge>
+                    )}
                   </div>
 
                   <h3 className="text-lg font-semibold mb-2 group-hover:text-primary transition-colors">
@@ -199,15 +306,24 @@ const Index = () => {
 
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Progress</span>
-                      <span className="font-medium">{topic.progress}%</span>
+                      <span className="text-muted-foreground">
+                        {topic.isCustom ? "Sessions" : "Progress"}
+                      </span>
+                      <span className="font-medium">
+                        {topic.isCustom ? (topic.sessionsCompleted || 0) : `${topic.progress}%`}
+                      </span>
                     </div>
-                    <Progress value={topic.progress} className="h-2" />
+                    {!topic.isCustom && <Progress value={topic.progress} className="h-2" />}
+                    {topic.isCustom && topic.lastStudied && (
+                      <p className="text-xs text-muted-foreground">
+                        Last studied: {new Date(topic.lastStudied).toLocaleDateString()}
+                      </p>
+                    )}
                   </div>
 
                   <div className="mt-4 pt-4 border-t border-border/50 flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">
-                      {topic.progress > 0 ? "Continue Learning" : "Start Learning"}
+                      {topic.isCustom ? "Practice Again" : (topic.progress > 0 ? "Continue Learning" : "Start Learning")}
                     </span>
                     <Button size="sm" variant="ghost" className="gap-1 group-hover:text-primary">
                       <Play className="w-4 h-4" />
@@ -218,6 +334,7 @@ const Index = () => {
               );
             })}
           </div>
+          )}
 
           {filteredTopics.length === 0 && (
             <div className="text-center py-12">

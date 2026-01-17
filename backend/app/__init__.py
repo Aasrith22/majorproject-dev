@@ -1,0 +1,3 @@
+"""
+EduSynapse Backend App Module
+"""
