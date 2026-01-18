@@ -33,13 +33,70 @@ async def get_progress(current_user: User = Depends(get_or_create_guest_user)):
     # Get current focus topics from recent sessions
     recent_sessions = await LearningSession.find(
         LearningSession.user_id == str(current_user.id)
-    ).sort(-LearningSession.last_activity_at).limit(10).to_list()
+    ).sort(-LearningSession.last_activity_at).limit(20).to_list()
     
     # Extract unique topics being studied
     current_focus_topics = list(set([
         s.topic_name for s in recent_sessions 
         if s.topic_name and s.status in [SessionStatus.ACTIVE, SessionStatus.COMPLETED]
     ]))[:5]  # Limit to 5 topics
+    
+    # Build recent_topics list with detailed progress for each topic
+    topic_details = {}
+    for session in recent_sessions:
+        topic_name = session.topic_name
+        if not topic_name:
+            continue
+            
+        if topic_name not in topic_details:
+            topic_details[topic_name] = {
+                "id": topic_name.lower().replace(" ", "-"),
+                "name": topic_name,
+                "subject": session.session_context.get("detected_subject", "General"),
+                "status": "in_progress" if session.status == SessionStatus.ACTIVE else "completed",
+                "progress": 0,
+                "score": 0,
+                "sessions_count": 0,
+                "total_questions": 0,
+                "correct_answers": 0,
+                "last_activity": session.last_activity_at,
+                "is_custom": session.is_custom_topic,
+            }
+        
+        # Aggregate stats across sessions for the same topic
+        topic_details[topic_name]["sessions_count"] += 1
+        topic_details[topic_name]["total_questions"] += session.questions_answered
+        topic_details[topic_name]["correct_answers"] += session.correct_answers
+        
+        # Update status - prefer "active" status if any session is active
+        if session.status == SessionStatus.ACTIVE:
+            topic_details[topic_name]["status"] = "in_progress"
+        
+        # Update last activity to the most recent
+        if session.last_activity_at and (
+            not topic_details[topic_name]["last_activity"] or 
+            session.last_activity_at > topic_details[topic_name]["last_activity"]
+        ):
+            topic_details[topic_name]["last_activity"] = session.last_activity_at
+    
+    # Calculate progress and score for each topic
+    recent_topics = []
+    for topic_name, details in topic_details.items():
+        if details["total_questions"] > 0:
+            details["score"] = round((details["correct_answers"] / details["total_questions"]) * 100, 1)
+            # Progress based on score and session count (max 100)
+            details["progress"] = min(100, int(details["score"] * 0.7 + details["sessions_count"] * 10))
+        else:
+            details["progress"] = 10  # Just started
+        
+        # Convert datetime to string for JSON serialization
+        if details["last_activity"]:
+            details["last_activity"] = details["last_activity"].isoformat()
+        
+        recent_topics.append(details)
+    
+    # Sort by last activity (most recent first)
+    recent_topics = sorted(recent_topics, key=lambda x: x.get("last_activity") or "", reverse=True)
     
     # Update profile with current focus topics
     if current_focus_topics and current_focus_topics != profile.current_focus_topics:
@@ -59,6 +116,7 @@ async def get_progress(current_user: User = Depends(get_or_create_guest_user)):
         knowledge_gaps=profile.knowledge_gaps,
         current_streak_days=profile.current_streak_days,
         achievements=profile.achievements,
+        recent_topics=recent_topics,
     )
 
 

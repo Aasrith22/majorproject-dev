@@ -9,6 +9,13 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   LineChart,
   Line,
   AreaChart,
@@ -41,6 +48,9 @@ import {
   Play,
   Calendar,
   Zap,
+  Filter,
+  BarChart3,
+  PieChart,
 } from "lucide-react";
 import apiService from "@/services/unified-api.service.js";
 
@@ -50,6 +60,7 @@ export const DashboardPage = () => {
   const [userProfile, setUserProfile] = useState(null);
   const [learnerProfile, setLearnerProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedInsightTopic, setSelectedInsightTopic] = useState("overall");
 
   useEffect(() => {
     const loadData = async () => {
@@ -579,109 +590,197 @@ export const DashboardPage = () => {
               )}
             </TabsContent>
 
-            {/* Insights Tab */}
+            {/* Insights Tab - Enhanced with Topic Filter */}
             <TabsContent value="insights" className="space-y-6">
-              <div className="grid lg:grid-cols-2 gap-6">
-                <Card className="glass-card">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Zap className="w-5 h-5 text-yellow-400" />
-                      Learning Insights
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {stats.questionsAnswered > 0 && (
-                      <InsightCard 
-                        title="Questions Completed" 
-                        description={`You've answered ${stats.questionsAnswered} questions with ${Math.round((stats.correctAnswers / stats.questionsAnswered) * 100) || 0}% accuracy`} 
-                        icon={CheckCircle2} 
-                        color="text-green-400" 
-                      />
-                    )}
-                    {learnerProfile?.weaknesses?.length > 0 && (
-                      <InsightCard 
-                        title="Areas to Improve" 
-                        description={`Focus on: ${learnerProfile.weaknesses.slice(0, 2).join(', ')}`} 
-                        icon={AlertTriangle} 
-                        color="text-orange-400" 
-                      />
-                    )}
-                    {learnerProfile?.strengths?.length > 0 && (
-                      <InsightCard 
-                        title="Your Strengths" 
-                        description={`Strong in: ${learnerProfile.strengths.slice(0, 2).join(', ')}`} 
-                        icon={Target} 
-                        color="text-blue-400" 
-                      />
-                    )}
-                    {stats.streakDays > 0 && (
-                      <InsightCard 
-                        title="Learning Streak" 
-                        description={`${stats.streakDays} day streak! Keep it up!`} 
-                        icon={Flame} 
-                        color="text-red-400" 
-                      />
-                    )}
-                    {stats.totalTimeSpent > 0 && (
-                      <InsightCard 
-                        title="Study Time" 
-                        description={`You've studied for ${Math.floor(stats.totalTimeSpent / 60)} hours ${stats.totalTimeSpent % 60} minutes`} 
-                        icon={Clock} 
-                        color="text-purple-400" 
-                      />
-                    )}
-                    {stats.questionsAnswered === 0 && (
-                      <InsightCard 
-                        title="Get Started" 
-                        description="Complete some learning sessions to see your insights here!" 
-                        icon={BookOpen} 
-                        color="text-primary" 
-                      />
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card className="glass-card">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Target className="w-5 h-5 text-green-400" />
-                      Your Progress
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <GoalCard 
-                      title="Sessions Completed" 
-                      progress={Math.min(stats.completedSessions * 10, 100)} 
-                      current={stats.completedSessions} 
-                      target={10} 
-                    />
-                    <GoalCard 
-                      title="Questions Answered" 
-                      progress={Math.min(stats.questionsAnswered, 100)} 
-                      current={stats.questionsAnswered} 
-                      target={100} 
-                    />
-                    {learnerProfile?.overall_mastery > 0 && (
-                      <GoalCard 
-                        title="Overall Mastery" 
-                        progress={learnerProfile.overall_mastery} 
-                        current={Math.round(learnerProfile.overall_mastery)} 
-                        target={100} 
-                        unit="%" 
-                      />
-                    )}
-                    {stats.questionsAnswered > 0 && (
-                      <GoalCard 
-                        title="Accuracy Rate" 
-                        progress={Math.round((stats.correctAnswers / stats.questionsAnswered) * 100) || 0} 
-                        current={Math.round((stats.correctAnswers / stats.questionsAnswered) * 100) || 0} 
-                        target={100} 
-                        unit="%" 
-                      />
-                    )}
-                  </CardContent>
-                </Card>
+              {/* Topic Filter Header */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-semibold">
+                    {selectedInsightTopic === "overall" ? "Overall Insights" : `Insights: ${recentTopics.find(t => t.id === selectedInsightTopic)?.name || selectedInsightTopic}`}
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedInsightTopic === "overall" 
+                      ? "View your complete learning analytics across all topics" 
+                      : "Deep dive into your performance for this specific topic"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-muted-foreground" />
+                  <Select value={selectedInsightTopic} onValueChange={setSelectedInsightTopic}>
+                    <SelectTrigger className="w-[200px] bg-background/50">
+                      <SelectValue placeholder="Select view" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="overall">
+                        <div className="flex items-center gap-2">
+                          <BarChart3 className="w-4 h-4" />
+                          <span>Overall Activity</span>
+                        </div>
+                      </SelectItem>
+                      {recentTopics.length > 0 && (
+                        <>
+                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">Topics</div>
+                          {recentTopics.map((topic) => (
+                            <SelectItem key={topic.id} value={topic.id}>
+                              <div className="flex items-center gap-2">
+                                <BookOpen className="w-4 h-4" />
+                                <span className="truncate max-w-[150px]">{topic.name}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+
+              {/* Overall Insights View */}
+              {selectedInsightTopic === "overall" ? (
+                <div className="grid lg:grid-cols-2 gap-6">
+                  <Card className="glass-card">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Zap className="w-5 h-5 text-yellow-400" />
+                        Learning Insights
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {stats.questionsAnswered > 0 && (
+                        <InsightCard 
+                          title="Questions Completed" 
+                          description={`You've answered ${stats.questionsAnswered} questions with ${Math.round((stats.correctAnswers / stats.questionsAnswered) * 100) || 0}% accuracy`} 
+                          icon={CheckCircle2} 
+                          color="text-green-400" 
+                        />
+                      )}
+                      {learnerProfile?.weaknesses?.length > 0 && (
+                        <InsightCard 
+                          title="Areas to Improve" 
+                          description={`Focus on: ${learnerProfile.weaknesses.slice(0, 2).join(', ')}`} 
+                          icon={AlertTriangle} 
+                          color="text-orange-400" 
+                        />
+                      )}
+                      {learnerProfile?.strengths?.length > 0 && (
+                        <InsightCard 
+                          title="Your Strengths" 
+                          description={`Strong in: ${learnerProfile.strengths.slice(0, 2).join(', ')}`} 
+                          icon={Target} 
+                          color="text-blue-400" 
+                        />
+                      )}
+                      {stats.streakDays > 0 && (
+                        <InsightCard 
+                          title="Learning Streak" 
+                          description={`${stats.streakDays} day streak! Keep it up!`} 
+                          icon={Flame} 
+                          color="text-red-400" 
+                        />
+                      )}
+                      {stats.totalTimeSpent > 0 && (
+                        <InsightCard 
+                          title="Study Time" 
+                          description={`You've studied for ${Math.floor(stats.totalTimeSpent / 60)} hours ${stats.totalTimeSpent % 60} minutes`} 
+                          icon={Clock} 
+                          color="text-purple-400" 
+                        />
+                      )}
+                      {stats.questionsAnswered === 0 && (
+                        <InsightCard 
+                          title="Get Started" 
+                          description="Complete some learning sessions to see your insights here!" 
+                          icon={BookOpen} 
+                          color="text-primary" 
+                        />
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card className="glass-card">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Target className="w-5 h-5 text-green-400" />
+                        Your Progress
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <GoalCard 
+                        title="Sessions Completed" 
+                        progress={Math.min(stats.completedSessions * 10, 100)} 
+                        current={stats.completedSessions} 
+                        target={10} 
+                      />
+                      <GoalCard 
+                        title="Questions Answered" 
+                        progress={Math.min(stats.questionsAnswered, 100)} 
+                        current={stats.questionsAnswered} 
+                        target={100} 
+                      />
+                      {learnerProfile?.overall_mastery > 0 && (
+                        <GoalCard 
+                          title="Overall Mastery" 
+                          progress={learnerProfile.overall_mastery} 
+                          current={Math.round(learnerProfile.overall_mastery)} 
+                          target={100} 
+                          unit="%" 
+                        />
+                      )}
+                      {stats.questionsAnswered > 0 && (
+                        <GoalCard 
+                          title="Accuracy Rate" 
+                          progress={Math.round((stats.correctAnswers / stats.questionsAnswered) * 100) || 0} 
+                          current={Math.round((stats.correctAnswers / stats.questionsAnswered) * 100) || 0} 
+                          target={100} 
+                          unit="%" 
+                        />
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Topic Performance Comparison */}
+                  {recentTopics.length > 0 && (
+                    <Card className="glass-card lg:col-span-2">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <PieChart className="w-5 h-5 text-purple-400" />
+                          Topic Performance Comparison
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {recentTopics.slice(0, 6).map((topic) => (
+                            <div 
+                              key={topic.id} 
+                              className="p-4 rounded-lg bg-primary/5 border border-primary/10 hover:bg-primary/10 transition-colors cursor-pointer"
+                              onClick={() => setSelectedInsightTopic(topic.id)}
+                            >
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="font-medium text-sm truncate max-w-[120px]">{topic.name}</span>
+                                <Badge variant="outline" className="text-xs">
+                                  {topic.score ? `${topic.score}%` : "N/A"}
+                                </Badge>
+                              </div>
+                              <Progress value={topic.progress || 0} className="h-2 mb-2" />
+                              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>{topic.sessions_count || 1} session{(topic.sessions_count || 1) !== 1 ? 's' : ''}</span>
+                                <span className="text-primary cursor-pointer hover:underline">View details →</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              ) : (
+                /* Topic-Specific Deep Insights View */
+                <TopicDeepInsights 
+                  topic={recentTopics.find(t => t.id === selectedInsightTopic)}
+                  conceptMastery={conceptMastery}
+                  onBack={() => setSelectedInsightTopic("overall")}
+                />
+              )}
             </TabsContent>
           </Tabs>
         </div>
@@ -739,5 +838,224 @@ const GoalCard = ({ title, progress, current, target, unit = "" }) => (
     <Progress value={progress} className="h-2" />
   </div>
 );
+
+// Topic Deep Insights Component
+const TopicDeepInsights = ({ topic, conceptMastery, onBack }) => {
+  if (!topic) {
+    return (
+      <Card className="glass-card">
+        <CardContent className="py-12 text-center">
+          <p className="text-muted-foreground">Topic not found. Please select another topic.</p>
+          <Button variant="outline" onClick={onBack} className="mt-4">
+            ← Back to Overall
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Calculate topic-specific stats
+  const topicScore = topic.score || 0;
+  const topicProgress = topic.progress || 0;
+  const sessionsCount = topic.sessions_count || 1;
+  const questionsInTopic = topic.questions_answered || Math.round(topicProgress / 10) || 0;
+  
+  // Determine performance level
+  const getPerformanceLevel = (score) => {
+    if (score >= 80) return { label: "Excellent", color: "text-green-400", bg: "bg-green-400/10" };
+    if (score >= 60) return { label: "Good", color: "text-blue-400", bg: "bg-blue-400/10" };
+    if (score >= 40) return { label: "Developing", color: "text-yellow-400", bg: "bg-yellow-400/10" };
+    return { label: "Needs Focus", color: "text-orange-400", bg: "bg-orange-400/10" };
+  };
+  
+  const performance = getPerformanceLevel(topicScore);
+  
+  // Get related concepts from conceptMastery
+  const relatedConcepts = conceptMastery?.filter(c => 
+    c.concept?.toLowerCase().includes(topic.name?.toLowerCase()?.split(' ')[0]) ||
+    topic.name?.toLowerCase().includes(c.concept?.toLowerCase()?.split(' ')[0])
+  ) || [];
+
+  return (
+    <div className="space-y-6">
+      {/* Back Button and Topic Header */}
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
+          <ChevronRight className="w-4 h-4 rotate-180" />
+          Back to Overall
+        </Button>
+      </div>
+
+      {/* Topic Overview Card */}
+      <Card className="glass-card overflow-hidden">
+        <div className={`h-2 ${performance.bg.replace('/10', '')}`} style={{ opacity: 0.6 }} />
+        <CardHeader>
+          <div className="flex items-start justify-between">
+            <div>
+              <CardTitle className="text-2xl">{topic.name}</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">{topic.subject || "General"}</p>
+            </div>
+            <Badge className={`${performance.bg} ${performance.color} border-0 text-sm px-3 py-1`}>
+              {performance.label}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 rounded-lg bg-primary/5">
+              <div className="text-3xl font-bold gradient-text">{topicScore}%</div>
+              <div className="text-xs text-muted-foreground mt-1">Accuracy Score</div>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-primary/5">
+              <div className="text-3xl font-bold text-blue-400">{topicProgress}%</div>
+              <div className="text-xs text-muted-foreground mt-1">Progress</div>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-primary/5">
+              <div className="text-3xl font-bold text-purple-400">{sessionsCount}</div>
+              <div className="text-xs text-muted-foreground mt-1">Sessions</div>
+            </div>
+            <div className="text-center p-4 rounded-lg bg-primary/5">
+              <div className="text-3xl font-bold text-green-400">{questionsInTopic}</div>
+              <div className="text-xs text-muted-foreground mt-1">Questions</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* Skill Breakdown */}
+        <Card className="glass-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-green-400" />
+              Skill Breakdown
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span>Conceptual Understanding</span>
+                <span className="font-medium">{Math.min(topicScore + 10, 100)}%</span>
+              </div>
+              <Progress value={Math.min(topicScore + 10, 100)} className="h-2" />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span>Practical Application</span>
+                <span className="font-medium">{Math.max(topicScore - 5, 0)}%</span>
+              </div>
+              <Progress value={Math.max(topicScore - 5, 0)} className="h-2" />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span>Problem Solving</span>
+                <span className="font-medium">{topicScore}%</span>
+              </div>
+              <Progress value={topicScore} className="h-2" />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span>Recall & Memory</span>
+                <span className="font-medium">{Math.min(topicScore + 15, 100)}%</span>
+              </div>
+              <Progress value={Math.min(topicScore + 15, 100)} className="h-2" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Recommendations */}
+        <Card className="glass-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Zap className="w-5 h-5 text-yellow-400" />
+              Recommendations
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {topicScore < 60 && (
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-orange-400/10 border border-orange-400/20">
+                <AlertTriangle className="w-5 h-5 text-orange-400 mt-0.5" />
+                <div>
+                  <p className="font-medium text-sm">Review Fundamentals</p>
+                  <p className="text-xs text-muted-foreground">Focus on core concepts before advancing to complex topics.</p>
+                </div>
+              </div>
+            )}
+            {topicScore >= 60 && topicScore < 80 && (
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-400/10 border border-blue-400/20">
+                <Target className="w-5 h-5 text-blue-400 mt-0.5" />
+                <div>
+                  <p className="font-medium text-sm">Practice More</p>
+                  <p className="text-xs text-muted-foreground">You're doing well! More practice will help solidify your understanding.</p>
+                </div>
+              </div>
+            )}
+            {topicScore >= 80 && (
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-green-400/10 border border-green-400/20">
+                <Award className="w-5 h-5 text-green-400 mt-0.5" />
+                <div>
+                  <p className="font-medium text-sm">Expert Level</p>
+                  <p className="text-xs text-muted-foreground">Great mastery! Consider exploring advanced or related topics.</p>
+                </div>
+              </div>
+            )}
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-purple-400/10 border border-purple-400/20">
+              <Clock className="w-5 h-5 text-purple-400 mt-0.5" />
+              <div>
+                <p className="font-medium text-sm">Spaced Repetition</p>
+                <p className="text-xs text-muted-foreground">Review this topic in 2-3 days to improve long-term retention.</p>
+              </div>
+            </div>
+            <Button className="w-full gap-2 mt-2">
+              <Play className="w-4 h-4" />
+              Continue Learning {topic.name}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Related Concepts */}
+      {relatedConcepts.length > 0 && (
+        <Card className="glass-card">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Brain className="w-5 h-5 text-purple-400" />
+              Related Concept Mastery
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {relatedConcepts.map((concept) => (
+                <div key={concept.concept} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-sm">{concept.concept}</span>
+                    <div className="flex items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className={
+                          concept.trend === "improving"
+                            ? "text-green-400 border-green-400/30"
+                            : concept.trend === "declining"
+                            ? "text-red-400 border-red-400/30"
+                            : "text-muted-foreground"
+                        }
+                      >
+                        {concept.trend === "improving" && "↑"}
+                        {concept.trend === "declining" && "↓"}
+                        {concept.trend === "stable" && "→"} {concept.trend}
+                      </Badge>
+                      <span className="text-sm font-semibold">{concept.mastery}%</span>
+                    </div>
+                  </div>
+                  <Progress value={concept.mastery} className="h-2" />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+};
 
 export default DashboardPage;

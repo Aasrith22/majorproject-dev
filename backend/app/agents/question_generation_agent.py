@@ -168,8 +168,30 @@ class QuestionGenerationAgent:
             learner_profile = context.get("learner_profile", {})
             
             if self.llm_client:
-                # Use LLM to generate all questions at once
-                questions = await self._llm_generate_batch_questions(
+                # Try batch generation first, then fall back to parallel individual generation
+                try:
+                    questions = await self._llm_generate_batch_questions(
+                        content_chunks=content_chunks,
+                        topic=topic,
+                        count=count,
+                        preferred_type=preferred_type,
+                        learner_profile=learner_profile,
+                        context=context
+                    )
+                    # Check if batch generation returned valid questions (not fallbacks)
+                    if questions and len(questions) >= count and not all(
+                        q.get("question_text", "").startswith("Based on your study of")
+                        for q in questions
+                    ):
+                        return questions
+                    
+                    logger.warning(f"[QuestionGen] Batch generation returned fallbacks, trying parallel generation")
+                except Exception as batch_error:
+                    logger.warning(f"[QuestionGen] Batch generation failed: {batch_error}")
+                
+                # Fallback: Use parallel individual question generation
+                logger.info(f"[QuestionGen] Using parallel individual question generation for {count} questions")
+                questions = await self._parallel_generate_questions(
                     content_chunks=content_chunks,
                     topic=topic,
                     count=count,
@@ -209,6 +231,66 @@ class QuestionGenerationAgent:
                 fallback["batch_index"] = i
                 questions.append(fallback)
             return questions
+    
+    async def _parallel_generate_questions(
+        self,
+        content_chunks: List[Dict[str, Any]],
+        topic: str,
+        count: int,
+        preferred_type: str,
+        learner_profile: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate questions in parallel using asyncio.gather
+        This is more robust than batch generation as individual failures don't affect others
+        """
+        difficulties = ["easy", "medium", "medium", "hard", "medium"]
+        
+        async def generate_single(index: int) -> Dict[str, Any]:
+            try:
+                difficulty = difficulties[index % len(difficulties)]
+                content = ""
+                if content_chunks and len(content_chunks) > 0:
+                    content = content_chunks[index % len(content_chunks)].get("content", "")
+                
+                question = await self._llm_generate_question(
+                    content=content,
+                    question_type=preferred_type,
+                    difficulty=difficulty,
+                    topic=topic,
+                    context={**context, "batch_index": index}
+                )
+                question["batch_index"] = index
+                return question
+            except Exception as e:
+                logger.warning(f"[QuestionGen] Parallel gen failed for question {index}: {e}")
+                fallback = self._academic_template_question(
+                    topic=topic,
+                    question_type=preferred_type,
+                    difficulty=difficulties[index % len(difficulties)],
+                    index=index
+                )
+                fallback["batch_index"] = index
+                return fallback
+        
+        # Generate all questions in parallel
+        tasks = [generate_single(i) for i in range(count)]
+        questions = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Filter out exceptions and ensure all results are valid dicts
+        valid_questions = []
+        for i, q in enumerate(questions):
+            if isinstance(q, dict):
+                valid_questions.append(q)
+            else:
+                logger.warning(f"[QuestionGen] Question {i} returned exception: {q}")
+                fallback = self._fallback_question(context)
+                fallback["batch_index"] = i
+                valid_questions.append(fallback)
+        
+        logger.info(f"[QuestionGen] Parallel generation completed: {len(valid_questions)} questions")
+        return valid_questions
     
     async def _llm_generate_batch_questions(
         self,
@@ -365,7 +447,7 @@ Before outputting, verify for EACH question:
                 response = await loop.run_in_executor(
                     None,
                     lambda: self.llm_client.generate_content(
-                        f"{prompt}\n\nIMPORTANT: Respond with valid JSON only. No markdown code blocks. No explanatory text before or after the JSON."
+                        f"{prompt}\n\nIMPORTANT: Respond with valid JSON only. No markdown code blocks. No explanatory text."
                     )
                 )
                 logger.info(f"[QuestionGen] Gemini batch response received")
@@ -461,6 +543,7 @@ Before outputting, verify for EACH question:
                 fallback = self._rule_based_generate_question(
                     content="",
                     question_type=question_type,
+                    difficulty="medium",
                     topic=topic
                 )
                 fallback["batch_index"] = len(questions)
@@ -476,6 +559,7 @@ Before outputting, verify for EACH question:
                 fallback = self._rule_based_generate_question(
                     content="",
                     question_type=question_type,
+                    difficulty="medium",
                     topic=topic
                 )
                 fallback["batch_index"] = i
@@ -575,55 +659,83 @@ Before outputting, verify for EACH question:
         topic: str,
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Generate question using LLM"""
+        """Generate question using LLM with retry logic for rate limits"""
         
         prompt = self._build_generation_prompt(
             content, question_type, difficulty, topic, context
         )
         
-        try:
-            if hasattr(self.llm_client, 'chat'):
-                logger.info(f"[QuestionGen] Using OpenAI-style client")
-                response = await self.llm_client.chat.completions.create(
-                    model=settings.openai_model,
-                    messages=[
-                        {"role": "system", "content": self.backstory},
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format={"type": "json_object"}
-                )
-                return self._parse_generated_question(
-                    response.choices[0].message.content,
-                    question_type,
-                    difficulty,
-                    topic
-                )
-            
-            elif hasattr(self.llm_client, 'generate_content'):
-                # Gemini-style client - use sync method in async context
-                logger.info(f"[QuestionGen] Using Gemini client to generate question")
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: self.llm_client.generate_content(
-                        f"{prompt}\n\nRespond with valid JSON only, no markdown formatting."
+        max_retries = 3
+        base_delay = 2  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                if hasattr(self.llm_client, 'chat'):
+                    logger.info(f"[QuestionGen] Using OpenAI-style client (attempt {attempt + 1})")
+                    response = await self.llm_client.chat.completions.create(
+                        model=settings.openai_model,
+                        messages=[
+                            {"role": "system", "content": self.backstory},
+                            {"role": "user", "content": prompt}
+                        ],
+                        response_format={"type": "json_object"}
                     )
-                )
-                logger.info(f"[QuestionGen] Gemini response received: {response.text[:200] if response and response.text else 'None'}")
-                return self._parse_generated_question(
-                    response.text,
-                    question_type,
-                    difficulty,
-                    topic
-                )
-            else:
-                logger.warning(f"[QuestionGen] Unknown LLM client type: {type(self.llm_client)}")
+                    return self._parse_generated_question(
+                        response.choices[0].message.content,
+                        question_type,
+                        difficulty,
+                        topic
+                    )
+                
+                elif hasattr(self.llm_client, 'generate_content'):
+                    # Gemini-style client - use sync method in async context
+                    logger.info(f"[QuestionGen] Using Gemini client to generate question (attempt {attempt + 1})")
+                    loop = asyncio.get_event_loop()
+                    response = await loop.run_in_executor(
+                        None,
+                        lambda: self.llm_client.generate_content(
+                            f"{prompt}\n\nRespond with valid JSON only, no markdown formatting."
+                        )
+                    )
+                    
+                    # Check for valid response
+                    if response and hasattr(response, 'text') and response.text:
+                        response_text = response.text.strip()
+                        # Check for rate limit error patterns in response
+                        if 'quota' in response_text.lower() or 'rate limit' in response_text.lower():
+                            raise Exception("Rate limit detected in response")
+                        logger.info(f"[QuestionGen] Gemini response received: {response_text[:200]}")
+                        return self._parse_generated_question(
+                            response_text,
+                            question_type,
+                            difficulty,
+                            topic
+                        )
+                    else:
+                        logger.warning(f"[QuestionGen] Empty Gemini response on attempt {attempt + 1}")
+                        raise Exception("Empty Gemini response")
+                else:
+                    logger.warning(f"[QuestionGen] Unknown LLM client type: {type(self.llm_client)}")
+                    break
+            
+            except Exception as e:
+                error_str = str(e).lower()
+                is_rate_limit = '429' in str(e) or 'quota' in error_str or 'rate' in error_str
+                
+                if is_rate_limit and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff: 2, 4, 8 seconds
+                    logger.warning(f"[QuestionGen] Rate limit hit, retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"[QuestionGen] LLM question generation failed: {e}")
+                    break
         
-        except Exception as e:
-            logger.error(f"[QuestionGen] LLM question generation failed: {e}", exc_info=True)
-        
-        logger.warning(f"[QuestionGen] Falling back to rule-based generation")
-        return self._rule_based_generate_question(content, question_type, difficulty, topic)
+        logger.warning(f"[QuestionGen] Falling back to academic template generation")
+        # Use index based on current time for variety
+        import time
+        unique_index = int(time.time() * 1000) % 100
+        return self._academic_template_question(topic, question_type, difficulty, unique_index)
     
     def _build_generation_prompt(
         self,
@@ -759,7 +871,7 @@ Before outputting, verify:
         return prompt
     
     def _extract_json_from_response(self, response: str) -> str:
-        """Extract JSON from LLM response, handling markdown code blocks"""
+        """Extract JSON from LLM response, handling markdown code blocks and malformed JSON"""
         import re
         
         if not response:
@@ -779,6 +891,14 @@ Before outputting, verify:
         end = text.rfind('}')
         if start != -1 and end != -1 and end > start:
             text = text[start:end + 1]
+        
+        # Fix common JSON issues from LLM outputs
+        # Remove trailing commas before } or ]
+        text = re.sub(r',\s*([}\]])', r'\1', text)
+        # Fix unescaped newlines in strings
+        text = re.sub(r'(?<!\\)\n(?=[^"]*"[^"]*$)', r'\\n', text)
+        # Fix single quotes to double quotes (be careful with apostrophes)
+        text = re.sub(r"(?<=[{,:\[\s])\'([^']*?)\'(?=[,}\]\s:])", r'"\1"', text)
         
         return text
     
@@ -832,7 +952,8 @@ Before outputting, verify:
         self,
         content: str,
         question_type: str,
-        topic: str
+        difficulty: str = "medium",
+        topic: str = "general"
     ) -> Dict[str, Any]:
         """Generate professional-quality question using rules when LLM unavailable"""
         
@@ -946,15 +1067,19 @@ Before outputting, verify:
     
     def _fallback_question(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Generate fallback question when all else fails - still topic-aware"""
+        import time
         topic = context.get("topic", "the subject")
         question_type = context.get("preferred_type", "mcq")
+        
+        # Use time-based index for variety
+        unique_index = int(time.time() * 1000) % 100
         
         # Use academic template generation for rigorous fallback
         return self._academic_template_question(
             topic=topic,
             question_type=question_type,
             difficulty="medium",
-            index=0
+            index=unique_index
         )
     
     def _academic_template_question(
@@ -974,9 +1099,11 @@ Before outputting, verify:
         """
         import hashlib
         import time
+        import uuid
         
-        # Create deterministic but varied seed based on topic and index
-        seed_str = f"{topic}_{index}_{int(time.time() / 60)}"  # Changes every minute
+        # Create truly varied seed based on topic, index, and unique identifier
+        # This ensures different questions even when called multiple times within the same second
+        seed_str = f"{topic}_{index}_{time.time()}_{uuid.uuid4().hex[:8]}"
         seed = int(hashlib.md5(seed_str.encode()).hexdigest()[:8], 16)
         rng = random.Random(seed)
         
@@ -1389,8 +1516,7 @@ Evaluate and respond in JSON:
                 result = await loop.run_in_executor(
                     None,
                     lambda: self.llm_client.generate_content(
-                        prompt,
-                        generation_config={"response_mime_type": "application/json"}
+                        f"{prompt}\n\nRespond with valid JSON only."
                     )
                 )
                 

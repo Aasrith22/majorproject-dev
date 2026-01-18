@@ -20,10 +20,13 @@ class InformationRetrievalAgent:
     2. Dynamic Fallback via Tavily Search API (academic content)
     3. Structured Templates (last resort)
     
+    NOTE: This agent uses Tavily for intelligent search expansion.
+    LLM is NOT used for query expansion to ensure reliability and avoid rate limits.
+    
     Responsibilities:
     - Use intent and topic from Query Analysis Agent
     - Perform hybrid retrieval (semantic + keyword)
-    - Dynamic web search for missing content
+    - Dynamic web search for missing content via Tavily
     - Filter content based on learner level and academic rigor
     """
     
@@ -108,7 +111,7 @@ class InformationRetrievalAgent:
             expanded_query = await self._expand_query(topic, subtopics, intent)
             
             # Step 1: Try local knowledge base
-            results = await self._local_retrieval(
+            local_results = await self._local_retrieval(
                 query=expanded_query,
                 topic=topic,
                 difficulty=difficulty,
@@ -116,9 +119,12 @@ class InformationRetrievalAgent:
                 modality=context.get("input_modality", "text")
             )
             
-            # Step 2: Check if results are sufficient (need at least 2 quality chunks)
-            if not results or len(results) < 2:
-                logger.info(f"[InfoRetrieval] Local results insufficient ({len(results) if results else 0}), triggering dynamic fallback")
+            results = local_results or []
+            
+            # Step 2: Hybrid merge - if local results insufficient, augment with Tavily
+            # Use threshold of 2 quality chunks for augmentation
+            if len(results) < 2:
+                logger.info(f"[InfoRetrieval] Local results insufficient ({len(results)}), triggering Tavily augmentation")
                 
                 # Try Tavily dynamic search
                 dynamic_results = await self._tavily_dynamic_search(
@@ -129,11 +135,17 @@ class InformationRetrievalAgent:
                 )
                 
                 if dynamic_results:
-                    results = dynamic_results
-                    logger.info(f"[InfoRetrieval] Tavily returned {len(results)} results")
-                else:
-                    # Final fallback: structured templates
-                    logger.warning(f"[InfoRetrieval] Tavily failed, using structured templates")
+                    # Hybrid merge: keep local results and extend with Tavily results
+                    # Avoid duplicates by checking content similarity
+                    existing_content = set(r.get("content", "")[:200] for r in results)
+                    for dr in dynamic_results:
+                        if dr.get("content", "")[:200] not in existing_content:
+                            results.append(dr)
+                    logger.info(f"[InfoRetrieval] After Tavily merge: {len(results)} total results")
+                
+                # If still no results, use structured templates
+                if not results:
+                    logger.warning(f"[InfoRetrieval] No results after merge, using structured templates")
                     results = self._get_structured_template_content(topic, subject_domain, difficulty)
             
             # Rank and filter results
@@ -188,9 +200,8 @@ class InformationRetrievalAgent:
         
         expanded = " ".join(query_parts)
         
-        # Use LLM for more sophisticated expansion if available
-        if self.llm_client:
-            expanded = await self._llm_query_expansion(expanded, topic)
+        # Rule-based expansion only (removed LLM dependency for reliability)
+        # The Tavily search will handle semantic understanding
         
         return expanded
     

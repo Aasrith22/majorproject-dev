@@ -129,9 +129,11 @@ export const LearnPage = () => {
     state.isSessionActive,
     state.currentQuestion,
     state.isGeneratingQuestion,
+    state.isLoadingQuestions,
     state.isSessionComplete,
     state.currentQuestionNumber,
     state.totalQuestions,
+    state.sessionQuestions.length,
     generateQuestion,
     selectedTestType,
   ]);
@@ -147,10 +149,12 @@ export const LearnPage = () => {
     }
     
     if (topicToUse) {
-      // Pass the test type to the session so questions use the correct format
-      await startLearningSession(topicToUse, questionCount, isCustomTopic, selectedTestType);
+      // Reset session time before starting
       setSessionTime(0);
-      setTimeout(() => generateQuestion(null, selectedTestType), 500); // difficulty is null - will be random
+      // Pass the test type to the session so questions use the correct format
+      // startLearningSession will load batch questions, then the auto-advance effect
+      // will trigger generateQuestion to show the first question from the batch
+      await startLearningSession(topicToUse, questionCount, isCustomTopic, selectedTestType);
     }
   };
 

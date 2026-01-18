@@ -45,23 +45,46 @@ class EduSynapseCrew:
         logger.info("EduSynapse Crew initialized")
     
     def _initialize_llm_client(self):
-        """Initialize the appropriate LLM client"""
+        """
+        Initialize the appropriate LLM client with fallback support
+        
+        Priority:
+        1. Default provider (from config)
+        2. Alternative provider (if default fails or hits rate limits)
+        3. None (will use rule-based/template generation)
+        """
         
         try:
             provider, config = LLMConfig.get_active_provider()
             logger.info(f"[Crew] Using LLM provider: {provider}, model: {config.get('model', 'unknown')}")
             
+            client = None
             if provider == "openai":
-                return self._get_openai_client(config)
+                client = self._get_openai_client(config)
             elif provider == "gemini":
-                return self._get_gemini_client(config)
+                client = self._get_gemini_client(config)
+            
+            # If primary provider initialized successfully, return it
+            if client:
+                return client
+            
+            # Try fallback to alternative provider
+            logger.warning(f"[Crew] Primary provider {provider} failed, trying alternative...")
+            if provider == "gemini" and settings.openai_api_key:
+                logger.info("[Crew] Attempting fallback to OpenAI")
+                return self._get_openai_client(LLMConfig.get_openai_config())
+            elif provider == "openai" and settings.google_api_key:
+                logger.info("[Crew] Attempting fallback to Gemini")
+                return self._get_gemini_client(LLMConfig.get_gemini_config())
             
         except ValueError as e:
-            logger.warning(f"LLM not configured: {e}. Running in fallback mode.")
+            logger.warning(f"LLM not configured: {e}. Running in template-only mode.")
             return None
         except Exception as e:
             logger.error(f"Failed to initialize LLM client: {e}")
             return None
+        
+        return None
     
     def _get_openai_client(self, config: Dict[str, Any]):
         """Get OpenAI client"""
@@ -126,8 +149,6 @@ class EduSynapseCrew:
                 user_input,
                 context
             )
-            # gentle delay to avoid bursting LLM requests
-            await asyncio.sleep(2)
             result["query_analysis"] = query_analysis
             result["agents_executed"].append("query_analysis")
             
@@ -138,8 +159,6 @@ class EduSynapseCrew:
                 query_analysis,
                 context
             )
-            # small delay before next agent to reduce burstiness
-            await asyncio.sleep(2)
             result["retrieved_content"] = retrieved_content
             result["agents_executed"].append("information_retrieval")
             
@@ -203,8 +222,6 @@ class EduSynapseCrew:
             agent_statuses["query_analysis"]["processingTime"] = int((time.time() - start_time) * 1000)
             agent_statuses["query_analysis"]["status"] = "completed"
             logger.info(f"[Crew] Query Analysis complete: {query_analysis.get('topic', {})}")
-            # avoid firing subsequent agents immediately
-            await asyncio.sleep(1.5)
             
             # Stage 2: Retrieve relevant content
             logger.info(f"[Crew] Stage 2: Information Retrieval")
@@ -220,7 +237,6 @@ class EduSynapseCrew:
             agent_statuses["information_retrieval"]["processingTime"] = int((time.time() - start_time) * 1000)
             agent_statuses["information_retrieval"]["status"] = "completed"
             logger.info(f"[Crew] Retrieved {len(retrieved_content.get('content_chunks', []))} content chunks")
-            await asyncio.sleep(1.5)
             
             # Stage 3: Generate question
             logger.info(f"[Crew] Stage 3: Question Generation")
@@ -322,8 +338,6 @@ class EduSynapseCrew:
                     session.session_context["detected_subject"] = detected_subject
                     await session.save()
             
-            await asyncio.sleep(1.5)
-            
             # Stage 2: Retrieve relevant content (once with more chunks)
             logger.info(f"[Crew] Stage 2: Information Retrieval")
             agent_statuses["information_retrieval"]["status"] = "processing"
@@ -340,7 +354,6 @@ class EduSynapseCrew:
             agent_statuses["information_retrieval"]["processingTime"] = int((time.time() - start_time) * 1000)
             agent_statuses["information_retrieval"]["status"] = "completed"
             logger.info(f"[Crew] Retrieved {len(retrieved_content.get('content_chunks', []))} content chunks")
-            await asyncio.sleep(1.5)
             
             # Stage 3: Generate all questions at once
             logger.info(f"[Crew] Stage 3: Batch Question Generation ({count} questions)")

@@ -155,6 +155,8 @@ class LearnerProfileResponse(BaseModel):
     knowledge_gaps: List[str]
     current_streak_days: int
     achievements: List[str]
+    # Add recent_topics for dashboard Topics tab
+    recent_topics: List[Dict[str, Any]] = []
     
     class Config:
         from_attributes = True
