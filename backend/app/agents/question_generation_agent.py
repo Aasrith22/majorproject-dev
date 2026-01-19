@@ -496,34 +496,58 @@ Before outputting, verify for EACH question:
         topic: str,
         expected_count: int
     ) -> List[Dict[str, Any]]:
-        """Parse LLM response containing multiple questions"""
+        """Parse LLM response containing multiple questions with robust error handling"""
         import json
         
         try:
             cleaned_response = self._extract_json_from_response(response)
+            logger.debug(f"[QuestionGen] Cleaned batch response length: {len(cleaned_response)}")
+            
             data = json.loads(cleaned_response)
             
             questions_data = data.get("questions", [])
             if not questions_data:
-                raise ValueError("No questions in response")
+                # Try to see if the response is a single question object
+                if data.get("question_text"):
+                    questions_data = [data]
+                    logger.info("[QuestionGen] Batch response contained single question, wrapping in list")
+                else:
+                    raise ValueError("No questions in response")
+            
+            logger.info(f"[QuestionGen] Successfully parsed {len(questions_data)} questions from batch response")
             
             questions = []
             for i, q in enumerate(questions_data):
+                question_text = q.get("question_text", "")
+                
+                # Validate question text is substantial
+                if not question_text or len(question_text) < 20:
+                    logger.warning(f"[QuestionGen] Question {i} has insufficient text, skipping")
+                    continue
+                
                 # Build MCQ options
                 options = None
                 if question_type == "mcq" and q.get("options"):
-                    options = [
-                        {
-                            "id": opt.get("id", chr(65 + j)),
-                            "text": opt.get("text", ""),
-                            "is_correct": opt.get("is_correct", False)
-                        }
-                        for j, opt in enumerate(q["options"])
-                    ]
+                    raw_options = q.get("options", [])
+                    if len(raw_options) >= 2:
+                        options = [
+                            {
+                                "id": opt.get("id", chr(65 + j)),
+                                "text": opt.get("text", ""),
+                                "is_correct": opt.get("is_correct", False)
+                            }
+                            for j, opt in enumerate(raw_options)
+                        ]
+                        # Ensure at least one correct answer
+                        if not any(opt["is_correct"] for opt in options):
+                            options[0]["is_correct"] = True
+                    else:
+                        logger.warning(f"[QuestionGen] Question {i} has insufficient options, skipping")
+                        continue
                 
                 question = {
                     "question_type": question_type,
-                    "question_text": q.get("question_text", ""),
+                    "question_text": question_text,
                     "context": q.get("question_context"),
                     "options": options,
                     "blank_answer": q.get("blank_answer"),
@@ -534,16 +558,19 @@ Before outputting, verify for EACH question:
                     "explanation": q.get("explanation"),
                     "points": q.get("points", 10),
                     "time_limit_seconds": q.get("time_limit_seconds", 60),
-                    "batch_index": i,
+                    "batch_index": len(questions),  # Use actual index in validated list
                 }
                 questions.append(question)
             
+            logger.info(f"[QuestionGen] Validated {len(questions)} questions from batch")
+            
             # If we didn't get enough questions, fill with fallbacks
+            difficulties = ["easy", "medium", "medium", "hard", "expert"]
             while len(questions) < expected_count:
                 fallback = self._rule_based_generate_question(
                     content="",
                     question_type=question_type,
-                    difficulty="medium",
+                    difficulty=difficulties[len(questions) % len(difficulties)],
                     topic=topic
                 )
                 fallback["batch_index"] = len(questions)
@@ -553,18 +580,106 @@ Before outputting, verify for EACH question:
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse batch questions JSON: {e}")
-            # Return fallback questions
+            logger.debug(f"[QuestionGen] Raw response (first 500 chars): {response[:500] if response else 'None'}")
+            
+            # Try to extract partial questions from truncated response
+            partial_questions = self._extract_partial_questions(response, question_type, topic)
+            if partial_questions:
+                logger.info(f"[QuestionGen] Recovered {len(partial_questions)} questions from partial response")
+                # Fill remaining with rule-based
+                while len(partial_questions) < expected_count:
+                    fallback = self._rule_based_generate_question(
+                        content="",
+                        question_type=question_type,
+                        difficulty="medium",
+                        topic=topic
+                    )
+                    fallback["batch_index"] = len(partial_questions)
+                    partial_questions.append(fallback)
+                return partial_questions
+            
+            # Return fallback questions with variety
+            logger.warning(f"[QuestionGen] Using rule-based generation for {expected_count} questions")
             questions = []
+            difficulties = ["easy", "medium", "medium", "hard", "expert"]
             for i in range(expected_count):
                 fallback = self._rule_based_generate_question(
                     content="",
                     question_type=question_type,
-                    difficulty="medium",
+                    difficulty=difficulties[i % len(difficulties)],
                     topic=topic
                 )
                 fallback["batch_index"] = i
                 questions.append(fallback)
             return questions
+    
+    def _extract_partial_questions(
+        self,
+        response: str,
+        question_type: str,
+        topic: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Attempt to extract any complete questions from a truncated/malformed response.
+        Returns list of successfully parsed questions.
+        """
+        import re
+        import json
+        
+        questions = []
+        
+        if not response:
+            return questions
+        
+        # Try to find individual question objects in the response
+        # Look for patterns like {"question_text": "...", ...}
+        question_pattern = r'\{\s*"question_text"\s*:\s*"[^"]+(?:\\.[^"]*)*"[^}]*(?:\{[^}]*\}[^}]*)*\}'
+        
+        try:
+            # Find all potential question JSON objects
+            matches = re.finditer(r'\{[^{}]*"question_text"[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
+            
+            for match in matches:
+                try:
+                    question_json = match.group()
+                    # Try to repair and parse
+                    cleaned = self._extract_json_from_response(question_json)
+                    q = json.loads(cleaned)
+                    
+                    if q.get("question_text"):
+                        # Build options if MCQ
+                        options = None
+                        if question_type == "mcq" and q.get("options"):
+                            options = [
+                                {
+                                    "id": opt.get("id", chr(65 + j)),
+                                    "text": opt.get("text", ""),
+                                    "is_correct": opt.get("is_correct", False)
+                                }
+                                for j, opt in enumerate(q["options"])
+                            ]
+                        
+                        questions.append({
+                            "question_type": question_type,
+                            "question_text": q.get("question_text", ""),
+                            "context": q.get("question_context"),
+                            "options": options,
+                            "blank_answer": q.get("blank_answer"),
+                            "acceptable_answers": q.get("acceptable_answers", []),
+                            "model_answer": q.get("model_answer"),
+                            "rubric": q.get("rubric"),
+                            "concepts": q.get("concepts", [topic]),
+                            "explanation": q.get("explanation"),
+                            "points": q.get("points", 10),
+                            "time_limit_seconds": q.get("time_limit_seconds", 60),
+                            "batch_index": len(questions),
+                        })
+                except (json.JSONDecodeError, TypeError):
+                    continue
+        except Exception as e:
+            logger.debug(f"[QuestionGen] Partial extraction failed: {e}")
+        
+        return questions
 
     def _select_content_for_question(
         self,
@@ -871,7 +986,7 @@ Before outputting, verify:
         return prompt
     
     def _extract_json_from_response(self, response: str) -> str:
-        """Extract JSON from LLM response, handling markdown code blocks and malformed JSON"""
+        """Extract JSON from LLM response, handling markdown code blocks and malformed/truncated JSON"""
         import re
         
         if not response:
@@ -891,6 +1006,10 @@ Before outputting, verify:
         end = text.rfind('}')
         if start != -1 and end != -1 and end > start:
             text = text[start:end + 1]
+        elif start != -1:
+            # JSON appears to be truncated - attempt to repair it
+            text = text[start:]
+            text = self._repair_truncated_json(text)
         
         # Fix common JSON issues from LLM outputs
         # Remove trailing commas before } or ]
@@ -902,6 +1021,54 @@ Before outputting, verify:
         
         return text
     
+    def _repair_truncated_json(self, text: str) -> str:
+        """
+        Attempt to repair truncated JSON by balancing brackets and braces.
+        This handles cases where LLM response was cut off mid-JSON.
+        """
+        import re
+        
+        # Count open brackets/braces
+        open_braces = text.count('{') - text.count('}')
+        open_brackets = text.count('[') - text.count(']')
+        
+        # Check if we're inside an unclosed string
+        # Count unescaped quotes
+        in_string = False
+        escaped = False
+        for char in text:
+            if escaped:
+                escaped = False
+                continue
+            if char == '\\':
+                escaped = True
+                continue
+            if char == '"':
+                in_string = not in_string
+        
+        # If in unclosed string, close it
+        if in_string:
+            # Find last reasonable place to truncate the string
+            # Look for patterns like "text... and close there
+            text = text.rstrip()
+            if not text.endswith('"'):
+                text += '"'
+        
+        # Remove any trailing incomplete key-value pairs
+        # Pattern: , "key": or , "key without value
+        text = re.sub(r',\s*"[^"]*"\s*:\s*$', '', text)
+        text = re.sub(r',\s*"[^"]*$', '', text)
+        text = re.sub(r',\s*$', '', text)  # Remove trailing comma
+        
+        # Balance brackets and braces
+        text = text.rstrip()
+        text += ']' * open_brackets
+        text += '}' * open_braces
+        
+        logger.warning(f"[QuestionGen] Repaired truncated JSON: added {open_brackets} brackets and {open_braces} braces")
+        
+        return text
+    
     def _parse_generated_question(
         self,
         response: str,
@@ -909,28 +1076,48 @@ Before outputting, verify:
         difficulty: str,
         topic: str
     ) -> Dict[str, Any]:
-        """Parse LLM response into question format"""
+        """Parse LLM response into question format with robust error handling"""
         import json
         
         try:
             cleaned_response = self._extract_json_from_response(response)
+            logger.debug(f"[QuestionGen] Cleaned response length: {len(cleaned_response)}")
+            
             data = json.loads(cleaned_response)
+            
+            # Validate that we got essential fields
+            question_text = data.get("question_text", "")
+            if not question_text or len(question_text) < 20:
+                logger.warning(f"[QuestionGen] Question text too short or missing: '{question_text[:50] if question_text else 'None'}'")
+                raise ValueError("Question text is missing or too short")
             
             # Build MCQ options
             options = None
             if question_type == "mcq" and data.get("options"):
+                raw_options = data.get("options", [])
+                if len(raw_options) < 2:
+                    logger.warning(f"[QuestionGen] Insufficient options ({len(raw_options)}), falling back")
+                    raise ValueError("Insufficient MCQ options")
+                    
                 options = [
                     {
                         "id": opt.get("id", chr(65 + i)),
                         "text": opt.get("text", ""),
                         "is_correct": opt.get("is_correct", False)
                     }
-                    for i, opt in enumerate(data["options"])
+                    for i, opt in enumerate(raw_options)
                 ]
+                
+                # Validate at least one correct answer
+                if not any(opt["is_correct"] for opt in options):
+                    logger.warning("[QuestionGen] No correct answer marked, marking first option as correct")
+                    options[0]["is_correct"] = True
+            
+            logger.info(f"[QuestionGen] Successfully parsed question: {question_text[:80]}...")
             
             return {
                 "question_type": question_type,
-                "question_text": data.get("question_text", ""),
+                "question_text": question_text,
                 "context": data.get("question_context"),
                 "options": options,
                 "blank_answer": data.get("blank_answer"),
@@ -944,9 +1131,10 @@ Before outputting, verify:
                 "time_limit_seconds": data.get("time_limit_seconds", 60),
             }
             
-        except json.JSONDecodeError:
-            logger.error("Failed to parse question JSON")
-            return self._fallback_question({"topic": topic})
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Failed to parse question JSON: {e}")
+            logger.debug(f"[QuestionGen] Raw response (first 300 chars): {response[:300] if response else 'None'}")
+            return self._fallback_question({"topic": topic, "preferred_type": question_type})
     
     def _rule_based_generate_question(
         self,

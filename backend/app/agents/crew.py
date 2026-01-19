@@ -97,15 +97,34 @@ class EduSynapseCrew:
             return None
     
     def _get_gemini_client(self, config: Dict[str, Any]):
-        """Get Google Gemini client"""
+        """Get Google Gemini client with optimized generation config"""
         try:
             import google.generativeai as genai
             
             genai.configure(api_key=config["api_key"])
-            return genai.GenerativeModel(config["model"])
+            
+            # Configure generation settings to prevent truncation
+            generation_config = genai.types.GenerationConfig(
+                max_output_tokens=8192,  # Increased to handle longer JSON responses
+                temperature=0.7,
+            )
+            
+            return genai.GenerativeModel(
+                config["model"],
+                generation_config=generation_config
+            )
         except ImportError:
             logger.warning("Google GenerativeAI package not installed")
             return None
+        except Exception as e:
+            logger.warning(f"Failed to configure Gemini with generation config: {e}")
+            # Fallback to basic configuration
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=config["api_key"])
+                return genai.GenerativeModel(config["model"])
+            except Exception:
+                return None
     
     async def execute(
         self,
