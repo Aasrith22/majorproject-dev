@@ -69,7 +69,14 @@ class QuestionGenerationAgent:
             # Extract parameters
             content_chunks = retrieved_content.get("content_chunks", [])
             recommended_difficulty = query_analysis.get("recommendations", {}).get("suggested_difficulty", "medium")
-            recommended_type = query_analysis.get("recommendations", {}).get("question_type", "mcq")
+            
+            # Prioritize context preferred_type over query_analysis recommendations
+            if context.get("preferred_type"):
+                recommended_type = context.get("preferred_type")
+                force_type = True  # Skip diversity check when user explicitly selects a type
+            else:
+                recommended_type = query_analysis.get("recommendations", {}).get("question_type", "mcq")
+                force_type = False
             
             # Get topic - prioritize context topic, then query_analysis
             topic_data = query_analysis.get("topic", {})
@@ -82,17 +89,20 @@ class QuestionGenerationAgent:
             if not topic:
                 topic = context.get("topic", "general topic")
             
-            logger.info(f"[QuestionGen] Generating question for topic: '{topic}'")
+            logger.info(f"[QuestionGen] Generating question for topic: '{topic}', preferred_type: '{recommended_type}', force_type: {force_type}")
             
             # Select content for question
             selected_content = self._select_content_for_question(content_chunks)
             
-            # Determine question type based on context
-            question_type = self._determine_question_type(
-                recommended_type,
-                context.get("session_history", []),
-                context.get("learner_profile", {})
-            )
+            # Determine question type - use forced type if user explicitly selected, otherwise allow diversity
+            if force_type:
+                question_type = recommended_type
+            else:
+                question_type = self._determine_question_type(
+                    recommended_type,
+                    context.get("session_history", []),
+                    context.get("learner_profile", {})
+                )
             
             # Determine difficulty (random selection weighted by profile)
             difficulty = self._determine_difficulty(
@@ -1019,6 +1029,16 @@ Before outputting, verify:
         # Fix single quotes to double quotes (be careful with apostrophes)
         text = re.sub(r"(?<=[{,:\[\s])\'([^']*?)\'(?=[,}\]\s:])", r'"\1"', text)
         
+        # Fix unescaped control characters that cause delimiter errors
+        # Replace tabs with escaped tabs
+        text = re.sub(r'(?<!\\)\t', r'\\t', text)
+        # Replace carriage returns
+        text = re.sub(r'(?<!\\)\r', r'\\r', text)
+        
+        # Try to fix truncated strings in the middle of JSON (common LLM issue)
+        # This handles cases where LLM output gets cut off mid-string
+        text = self._fix_truncated_strings(text)
+        
         return text
     
     def _repair_truncated_json(self, text: str) -> str:
@@ -1068,6 +1088,74 @@ Before outputting, verify:
         logger.warning(f"[QuestionGen] Repaired truncated JSON: added {open_brackets} brackets and {open_braces} braces")
         
         return text
+    
+    def _fix_truncated_strings(self, text: str) -> str:
+        """
+        Fix truncated or malformed strings in JSON that cause delimiter errors.
+        Handles cases where LLM output contains unescaped quotes or incomplete strings.
+        """
+        import re
+        
+        if not text:
+            return text
+        
+        # Fix unescaped quotes inside string values (common LLM issue)
+        # This is tricky - we need to identify quotes that should be escaped
+        # Look for patterns like: "text with "nested" quotes"
+        # Strategy: Find string values and escape internal quotes
+        
+        result = []
+        in_string = False
+        escaped = False
+        string_start = -1
+        i = 0
+        
+        while i < len(text):
+            char = text[i]
+            
+            if escaped:
+                result.append(char)
+                escaped = False
+                i += 1
+                continue
+            
+            if char == '\\':
+                result.append(char)
+                escaped = True
+                i += 1
+                continue
+            
+            if char == '"':
+                if not in_string:
+                    in_string = True
+                    string_start = len(result)
+                    result.append(char)
+                else:
+                    # Check if this quote is likely ending the string or is internal
+                    # A string-ending quote is typically followed by: , ] } : or whitespace
+                    next_char_idx = i + 1
+                    while next_char_idx < len(text) and text[next_char_idx] in ' \t\n\r':
+                        next_char_idx += 1
+                    
+                    if next_char_idx < len(text) and text[next_char_idx] in ',]}:':
+                        # This is likely the end of the string
+                        in_string = False
+                        result.append(char)
+                    elif next_char_idx >= len(text):
+                        # End of text, close the string
+                        in_string = False
+                        result.append(char)
+                    else:
+                        # This might be an unescaped internal quote - escape it
+                        result.append('\\')
+                        result.append(char)
+                i += 1
+                continue
+            
+            result.append(char)
+            i += 1
+        
+        return ''.join(result)
     
     def _parse_generated_question(
         self,

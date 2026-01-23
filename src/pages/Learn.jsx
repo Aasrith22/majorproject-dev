@@ -242,7 +242,7 @@ export const LearnPage = () => {
                             Multiple Choice
                           </div>
                         </SelectItem>
-                        <SelectItem value="fill-in-blank">
+                        <SelectItem value="fill_in_blank">
                           <div className="flex items-center gap-2">
                             <TextCursorInput className="w-4 h-4 text-purple-400" />
                             Fill in the Blanks
