@@ -73,18 +73,29 @@ class InformationRetrievalAgent:
         Retrieve relevant content based on query analysis
         
         Retrieval Chain:
-        1. Try local knowledge base
-        2. If insufficient, trigger Tavily dynamic search
-        3. If Tavily fails, use structured templates
+        1. Check for uploaded document content in context
+        2. Try local knowledge base
+        3. If insufficient, trigger Tavily dynamic search (augmented with extracted keywords)
+        4. If Tavily fails, use structured templates
         
         Args:
             query_analysis: Output from Query Analysis Agent
-            context: Session context
+            context: Session context (may contain uploaded_content and extracted_keywords)
             
         Returns:
             Retrieved content and metadata
         """
         context = context or {}
+        
+        # Check for document upload context
+        uploaded_content = context.get("uploaded_content", "")
+        extracted_keywords = context.get("extracted_keywords", [])
+        is_document_upload = context.get("is_document_upload", False)
+        
+        if is_document_upload and uploaded_content:
+            logger.info(f"[InfoRetrieval] Document upload detected, content length: {len(uploaded_content)}")
+            if extracted_keywords:
+                logger.info(f"[InfoRetrieval] Extracted keywords: {extracted_keywords[:5]}")
         
         try:
             # Extract search parameters from analysis
@@ -102,13 +113,36 @@ class InformationRetrievalAgent:
             if not topic:
                 topic = context.get("topic", "general")
             
+            # Use detected subject from document upload if available
+            if is_document_upload and context.get("detected_subject"):
+                subject_domain = context.get("detected_subject", subject_domain)
+            
             logger.info(f"[InfoRetrieval] Retrieving content for topic: '{topic}', domain: '{subject_domain}'")
             
             difficulty = query_analysis.get("recommendations", {}).get("suggested_difficulty", "medium")
             intent = query_analysis.get("intent", {}).get("primary", "")
             
-            # Expand query for better retrieval
+            # Expand query for better retrieval (include extracted keywords if available)
             expanded_query = await self._expand_query(topic, subtopics, intent)
+            
+            # Augment query with extracted keywords from uploaded document
+            if extracted_keywords:
+                keyword_addition = " ".join(extracted_keywords[:5])
+                expanded_query = f"{expanded_query} {keyword_addition}"
+                logger.info(f"[InfoRetrieval] Query augmented with document keywords: '{keyword_addition}'")
+            
+            # Step 0: If document was uploaded, create a content chunk from it
+            results = []
+            if is_document_upload and uploaded_content:
+                # Create chunked content from uploaded document
+                document_chunks = self._chunk_uploaded_content(
+                    uploaded_content, 
+                    topic, 
+                    difficulty,
+                    context.get("document_metadata", {})
+                )
+                results.extend(document_chunks)
+                logger.info(f"[InfoRetrieval] Added {len(document_chunks)} chunks from uploaded document")
             
             # Step 1: Try local knowledge base
             local_results = await self._local_retrieval(
@@ -119,23 +153,24 @@ class InformationRetrievalAgent:
                 modality=context.get("input_modality", "text")
             )
             
-            results = local_results or []
+            results.extend(local_results or [])
             
-            # Step 2: Hybrid merge - if local results insufficient, augment with Tavily
-            # Use threshold of 2 quality chunks for augmentation
-            if len(results) < 2:
-                logger.info(f"[InfoRetrieval] Local results insufficient ({len(results)}), triggering Tavily augmentation")
+            # Step 2: Hybrid merge - if results insufficient, augment with Tavily
+            # Use threshold of 2 quality chunks for augmentation (excluding document chunks for this check)
+            non_document_results = [r for r in results if r.get("source") != "uploaded_document"]
+            if len(non_document_results) < 2:
+                logger.info(f"[InfoRetrieval] External results insufficient ({len(non_document_results)}), triggering Tavily augmentation")
                 
-                # Try Tavily dynamic search
+                # Try Tavily dynamic search with keyword-augmented query
                 dynamic_results = await self._tavily_dynamic_search(
                     topic=topic,
                     subject_domain=subject_domain,
                     difficulty=difficulty,
-                    subtopics=subtopics
+                    subtopics=subtopics + extracted_keywords[:3]  # Add keywords to subtopics for Tavily
                 )
                 
                 if dynamic_results:
-                    # Hybrid merge: keep local results and extend with Tavily results
+                    # Hybrid merge: keep existing results and extend with Tavily results
                     # Avoid duplicates by checking content similarity
                     existing_content = set(r.get("content", "")[:200] for r in results)
                     for dr in dynamic_results:
@@ -143,10 +178,10 @@ class InformationRetrievalAgent:
                             results.append(dr)
                     logger.info(f"[InfoRetrieval] After Tavily merge: {len(results)} total results")
                 
-                # If still no results, use structured templates
-                if not results:
-                    logger.warning(f"[InfoRetrieval] No results after merge, using structured templates")
-                    results = self._get_structured_template_content(topic, subject_domain, difficulty)
+                # If still no results (beyond document), use structured templates
+                if not non_document_results and not dynamic_results:
+                    logger.warning(f"[InfoRetrieval] No external results after merge, using structured templates")
+                    results.extend(self._get_structured_template_content(topic, subject_domain, difficulty))
             
             # Rank and filter results
             ranked_results = self._rank_results(results, query_analysis, context)
@@ -161,7 +196,9 @@ class InformationRetrievalAgent:
                     "subject_domain": subject_domain,
                     "difficulty": difficulty,
                     "intent": intent,
-                    "source": ranked_results[0].get("source", "unknown") if ranked_results else "none"
+                    "source": ranked_results[0].get("source", "unknown") if ranked_results else "none",
+                    "has_uploaded_content": is_document_upload and bool(uploaded_content),
+                    "keywords_used": extracted_keywords[:5] if extracted_keywords else []
                 }
             }
             
@@ -275,6 +312,123 @@ Return only the expanded query string, no explanation."""
                 })
         
         return results
+    
+    def _chunk_uploaded_content(
+        self,
+        content: str,
+        topic: str,
+        difficulty: str,
+        metadata: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """
+        Chunk uploaded document content into retrieval-friendly pieces
+        
+        Creates multiple content chunks from the uploaded document that can be
+        used alongside other retrieval results for question generation.
+        
+        Args:
+            content: Full extracted text from document
+            topic: Detected or provided topic name
+            difficulty: Current difficulty level
+            metadata: Document metadata (filename, etc.)
+            
+        Returns:
+            List of content chunks formatted for retrieval results
+        """
+        chunks = []
+        
+        if not content:
+            return chunks
+        
+        # Split content into meaningful chunks (roughly 1500-2000 chars each)
+        chunk_size = 1800
+        overlap = 200
+        
+        # First, try to split by paragraphs/sections
+        paragraphs = content.split("\n\n")
+        
+        current_chunk = ""
+        chunk_index = 0
+        
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+                
+            # If adding this paragraph would exceed chunk size, save current and start new
+            if len(current_chunk) + len(para) > chunk_size and current_chunk:
+                chunks.append(self._create_document_chunk(
+                    current_chunk.strip(),
+                    topic,
+                    difficulty,
+                    metadata,
+                    chunk_index
+                ))
+                chunk_index += 1
+                # Keep some overlap for context
+                current_chunk = current_chunk[-overlap:] if len(current_chunk) > overlap else ""
+            
+            current_chunk += "\n\n" + para if current_chunk else para
+        
+        # Don't forget the last chunk
+        if current_chunk.strip():
+            chunks.append(self._create_document_chunk(
+                current_chunk.strip(),
+                topic,
+                difficulty,
+                metadata,
+                chunk_index
+            ))
+        
+        # If content was too short to chunk, create single chunk
+        if not chunks and content.strip():
+            chunks.append(self._create_document_chunk(
+                content.strip()[:chunk_size],
+                topic,
+                difficulty,
+                metadata,
+                0
+            ))
+        
+        # Limit to 5 most relevant chunks (beginning, middle, end strategy)
+        if len(chunks) > 5:
+            # Keep first 2, last 1, and 2 from middle
+            middle_idx = len(chunks) // 2
+            selected_chunks = (
+                chunks[:2] + 
+                chunks[middle_idx-1:middle_idx+1] + 
+                chunks[-1:]
+            )
+            chunks = selected_chunks
+        
+        return chunks
+    
+    def _create_document_chunk(
+        self,
+        content: str,
+        topic: str,
+        difficulty: str,
+        metadata: Dict[str, Any],
+        chunk_index: int
+    ) -> Dict[str, Any]:
+        """Create a single document chunk in the standard retrieval format"""
+        filename = metadata.get("filename", "uploaded_document")
+        
+        return {
+            "content_id": f"upload_{filename}_{chunk_index}",
+            "content": content,
+            "summary": content[:200] + "..." if len(content) > 200 else content,
+            "topic": topic,
+            "difficulty": difficulty,
+            "relevance_score": 0.95,  # High relevance since user uploaded it
+            "concepts": [],  # Will be extracted during question generation
+            "source": "uploaded_document",
+            "metadata": {
+                "filename": filename,
+                "chunk_index": chunk_index,
+                "is_user_uploaded": True
+            }
+        }
     
     async def _tavily_dynamic_search(
         self,

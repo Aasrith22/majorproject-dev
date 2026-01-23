@@ -3,7 +3,7 @@ Learning Sessions Routes
 Handles session creation, management, and input processing
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
 from datetime import datetime
 from typing import List, Optional
 from loguru import logger
@@ -21,10 +21,23 @@ from app.models.session import (
 from app.models.learner_profile import LearnerProfile
 from app.routes.auth import get_or_create_guest_user
 from app.services.preprocessing import PreprocessingService
+from app.services.document_processing import DocumentProcessingService
 from app.agents.crew import EduSynapseCrew
+from app.config import settings
 
 
 router = APIRouter()
+
+
+def _get_llm_client():
+    """Get OpenAI LLM client for document processing"""
+    if settings.openai_api_key:
+        try:
+            from openai import AsyncOpenAI
+            return AsyncOpenAI(api_key=settings.openai_api_key)
+        except Exception as e:
+            logger.warning(f"Failed to initialize OpenAI client: {e}")
+    return None
 
 
 def session_to_response(session: LearningSession) -> SessionResponse:
@@ -80,6 +93,122 @@ async def start_session(
     await current_user.save()
     
     logger.info(f"Session started: {session.id} for user {current_user.email}")
+    
+    return session_to_response(session)
+
+
+@router.post("/upload-start", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
+async def start_session_with_upload(
+    file: UploadFile = File(...),
+    topic_name: Optional[str] = Form(None),
+    target_questions: int = Form(default=10),
+    assessment_types: str = Form(default="mcq"),
+    current_user: User = Depends(get_or_create_guest_user)
+):
+    """
+    Start a new learning session with an uploaded document
+    
+    This endpoint:
+    1. Accepts PDF, Word (.docx), or text files
+    2. Extracts text and key terms from the document
+    3. Uses LLM to identify the topic and subject area
+    4. Injects document content and keywords into session_context
+    5. Returns the session so the frontend can proceed with question generation
+    
+    The extracted content and keywords will be used by:
+    - Information Retrieval Agent: to augment Tavily searches
+    - Question Generation Agent: to create questions based on document content
+    """
+    
+    # Validate file type
+    allowed_types = [
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/msword",
+        "text/plain"
+    ]
+    allowed_extensions = [".pdf", ".docx", ".doc", ".txt"]
+    
+    file_ext = "." + file.filename.split(".")[-1].lower() if "." in file.filename else ""
+    
+    if file.content_type not in allowed_types and file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed: PDF, Word (.docx), or text files"
+        )
+    
+    # Read file content
+    try:
+        file_content = await file.read()
+        if len(file_content) > 10 * 1024 * 1024:  # 10MB limit
+            raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
+    
+    # Process the document
+    llm_client = _get_llm_client()
+    doc_processor = DocumentProcessingService(llm_client=llm_client)
+    
+    processing_result = await doc_processor.process_document(
+        file_content=file_content,
+        filename=file.filename,
+        content_type=file.content_type or "application/octet-stream"
+    )
+    
+    if processing_result["status"] == "error":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Document processing failed: {processing_result.get('error', 'Unknown error')}"
+        )
+    
+    # Get user's learner profile for initial difficulty
+    profile = await LearnerProfile.find_one(LearnerProfile.user_id == str(current_user.id))
+    
+    # Use LLM-suggested topic or provided topic name
+    topic_info = processing_result.get("topic_info", {})
+    final_topic_name = topic_name or topic_info.get("suggested_topic", "Uploaded Document")
+    subject_area = topic_info.get("subject_area", "General")
+    difficulty_hint = topic_info.get("difficulty_hint", "medium")
+    
+    # Use hint or profile's current difficulty
+    initial_difficulty = difficulty_hint if difficulty_hint in ["easy", "medium", "hard", "expert"] else (
+        profile.current_difficulty if profile else "medium"
+    )
+    
+    # Parse assessment types from form data
+    assessment_types_list = [t.strip() for t in assessment_types.split(",") if t.strip()]
+    
+    # Create session with document context
+    session = LearningSession(
+        user_id=str(current_user.id),
+        topic_id=final_topic_name.lower().replace(" ", "-"),
+        topic_name=final_topic_name,
+        is_custom_topic=True,
+        custom_query=final_topic_name,
+        target_questions=target_questions,
+        assessment_types=assessment_types_list,
+        current_difficulty=initial_difficulty,
+        session_context={
+            "user_preferences": current_user.preferences.model_dump(),
+            "initial_difficulty": initial_difficulty,
+            "focus_topics": profile.current_focus_topics if profile else [],
+            "known_weaknesses": profile.weaknesses if profile else [],
+            # Document upload specific context
+            "uploaded_content": processing_result.get("extracted_text", ""),
+            "extracted_keywords": processing_result.get("key_terms", []),
+            "document_metadata": processing_result.get("metadata", {}),
+            "detected_subject": subject_area,
+            "is_document_upload": True,
+        }
+    )
+    await session.insert()
+    
+    # Update user statistics
+    current_user.total_sessions += 1
+    await current_user.save()
+    
+    logger.info(f"Document upload session started: {session.id} for user {current_user.email}")
+    logger.info(f"Document: {file.filename}, Topic: {final_topic_name}, Keywords: {processing_result.get('key_terms', [])[:5]}")
     
     return session_to_response(session)
 

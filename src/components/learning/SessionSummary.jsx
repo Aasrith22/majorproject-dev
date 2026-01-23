@@ -2,7 +2,12 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import {
   CheckCircle2,
   XCircle,
@@ -12,6 +17,10 @@ import {
   RotateCcw,
   Star,
   BarChart3,
+  ChevronDown,
+  FileText,
+  ListChecks,
+  TextCursorInput,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -92,8 +101,7 @@ export const SessionSummary = ({
         </div>
       </div>
 
-      <ScrollArea className="max-h-[400px]">
-        <div className="p-6 space-y-6">
+      <div className="p-6 space-y-6">
           {/* Quick Stats */}
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
@@ -120,46 +128,175 @@ export const SessionSummary = ({
               <BarChart3 className="w-4 h-4 text-primary" />
               Question Results
             </h4>
-            <div className="space-y-2">
+            <Accordion type="multiple" className="space-y-2">
               {feedback.map((f, index) => (
-                <div
+                <AccordionItem
                   key={f.id}
+                  value={`question-${index}`}
                   className={cn(
-                    "flex items-center justify-between p-3 rounded-lg border",
+                    "border rounded-lg overflow-hidden",
                     f.isCorrect
                       ? "bg-green-500/5 border-green-500/20"
                       : "bg-orange-500/5 border-orange-500/20"
                   )}
                 >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={cn(
-                        "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold",
-                        f.isCorrect ? "bg-green-500/20 text-green-400" : "bg-orange-500/20 text-orange-400"
-                      )}
-                    >
-                      {index + 1}
+                  <AccordionTrigger className="px-3 py-2 hover:no-underline">
+                    <div className="flex items-center justify-between w-full pr-2">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={cn(
+                            "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold",
+                            f.isCorrect ? "bg-green-500/20 text-green-400" : "bg-orange-500/20 text-orange-400"
+                          )}
+                        >
+                          {index + 1}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {f.isCorrect ? (
+                            <CheckCircle2 className="w-4 h-4 text-green-400" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-orange-400" />
+                          )}
+                          <span className="text-sm">
+                            Question {index + 1}
+                          </span>
+                          {f.questionDetails?.type && (
+                            <Badge variant="outline" className="text-xs ml-1">
+                              {f.questionDetails.type === 'multiple-choice' && <ListChecks className="w-3 h-3 mr-1" />}
+                              {f.questionDetails.type === 'fill-in-blank' && <TextCursorInput className="w-3 h-3 mr-1" />}
+                              {f.questionDetails.type === 'essay' && <FileText className="w-3 h-3 mr-1" />}
+                              {f.questionDetails.type === 'multiple-choice' ? 'MCQ' : 
+                               f.questionDetails.type === 'fill-in-blank' ? 'Fill' : 
+                               f.questionDetails.type === 'essay' ? 'Essay' : f.questionDetails.type}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Progress value={f.score} className="w-20 h-2" />
+                        <Badge variant={f.isCorrect ? "default" : "secondary"}>
+                          {f.score}%
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {f.isCorrect ? (
-                        <CheckCircle2 className="w-4 h-4 text-green-400" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-orange-400" />
+                  </AccordionTrigger>
+                  <AccordionContent className="px-3 pb-3">
+                    <div className="space-y-3 pt-2 border-t border-border/30">
+                      {/* Question Text */}
+                      {f.questionDetails?.content && (
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Question:</p>
+                          <p className="text-sm">{f.questionDetails.content}</p>
+                        </div>
                       )}
-                      <span className="text-sm">
-                        Question {index + 1}
-                      </span>
+                      
+                      {/* Answer Details based on question type */}
+                      {f.questionDetails?.type === 'multiple-choice' && (
+                        <div className="space-y-3">
+                          {/* Your Answer vs Correct Answer Summary */}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className={cn(
+                              "p-2 rounded border",
+                              f.isCorrect 
+                                ? "bg-green-500/10 border-green-500/30" 
+                                : "bg-red-500/10 border-red-500/30"
+                            )}>
+                              <p className="text-xs font-medium text-muted-foreground mb-1">Your Answer:</p>
+                              <p className={cn(
+                                "text-sm font-medium",
+                                f.isCorrect ? "text-green-400" : "text-red-400"
+                              )}>
+                                {f.questionDetails.options?.find(opt => 
+                                  opt.id === f.userSelectedOptionId || opt.text === f.userAnswer
+                                )?.text || f.userAnswer || "No answer"}
+                              </p>
+                            </div>
+                            <div className="p-2 rounded bg-green-500/10 border border-green-500/30">
+                              <p className="text-xs font-medium text-muted-foreground mb-1">Correct Answer:</p>
+                              <p className="text-sm font-medium text-green-400">
+                                {(() => {
+                                  const correctAns = f.correctAnswer || f.questionDetails.correctAnswer;
+                                  const matchedOption = f.questionDetails.options?.find(opt => 
+                                    opt.id === correctAns || opt.text === correctAns
+                                  );
+                                  return matchedOption?.text || correctAns || "N/A";
+                                })()}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {f.questionDetails?.type === 'fill-in-blank' && (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className={cn(
+                              "p-2 rounded border",
+                              f.isCorrect 
+                                ? "bg-green-500/10 border-green-500/30" 
+                                : "bg-red-500/10 border-red-500/30"
+                            )}>
+                              <p className="text-xs font-medium text-muted-foreground mb-1">Your Answer:</p>
+                              <p className={cn(
+                                "text-sm font-medium",
+                                f.isCorrect ? "text-green-400" : "text-red-400"
+                              )}>
+                                {f.userAnswer || "No answer"}
+                              </p>
+                            </div>
+                            <div className="p-2 rounded bg-green-500/10 border border-green-500/30">
+                              <p className="text-xs font-medium text-muted-foreground mb-1">Correct Answer:</p>
+                              <p className="text-sm font-medium text-green-400">
+                                {f.correctAnswer || f.questionDetails.correctAnswer || "N/A"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {f.questionDetails?.type === 'essay' && (
+                        <div className="space-y-3">
+                          <div className="p-3 rounded bg-muted/30">
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Your Answer:</p>
+                            <p className="text-sm whitespace-pre-wrap">
+                              {f.userAnswer || "No answer provided"}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-4 p-3 rounded bg-primary/5 border border-primary/20">
+                            <div className="flex-1">
+                              <p className="text-xs font-medium text-muted-foreground mb-1">Essay Score:</p>
+                              <div className="flex items-center gap-2">
+                                <Progress value={f.score} className="flex-1 h-3" />
+                                <span className={cn(
+                                  "text-lg font-bold",
+                                  f.score >= 70 ? "text-green-400" : f.score >= 50 ? "text-yellow-400" : "text-orange-400"
+                                )}>
+                                  {f.score}%
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          {f.explanation && (
+                            <div className="p-3 rounded bg-blue-500/5 border border-blue-500/20">
+                              <p className="text-xs font-medium text-blue-400 mb-1">Feedback:</p>
+                              <p className="text-sm text-muted-foreground">{f.explanation}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Explanation for non-essay questions */}
+                      {f.explanation && f.questionDetails?.type !== 'essay' && (
+                        <div className="p-2 rounded bg-blue-500/5 border border-blue-500/20">
+                          <p className="text-xs font-medium text-blue-400 mb-1">Explanation:</p>
+                          <p className="text-sm text-muted-foreground">{f.explanation}</p>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Progress value={f.score} className="w-20 h-2" />
-                    <Badge variant={f.isCorrect ? "default" : "secondary"}>
-                      {f.score}%
-                    </Badge>
-                  </div>
-                </div>
+                  </AccordionContent>
+                </AccordionItem>
               ))}
-            </div>
+            </Accordion>
           </div>
 
           {/* Dashboard Link */}
@@ -172,8 +309,7 @@ export const SessionSummary = ({
               Go to Dashboard
             </Button>
           </div>
-        </div>
-      </ScrollArea>
+      </div>
 
       {/* Action Footer */}
       <div className="p-4 border-t border-border/50 bg-background/50">

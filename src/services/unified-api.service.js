@@ -233,6 +233,34 @@ export const apiService = {
     return activeSession;
   },
 
+  async startSessionWithUpload(file, totalQuestions = 10, testType = 'mcq', topicName = null) {
+    await checkBackendHealth();
+    
+    const session = await sessionsAPI.startSessionWithUpload(
+      file,
+      topicName,
+      totalQuestions,
+      [testType]
+    );
+    
+    // Use the topic name returned from document processing or the one provided
+    const resolvedTopicName = topicName || session.topic_name || 'Uploaded Document';
+    activeTopicName = resolvedTopicName;
+    
+    activeSession = {
+      id: session.id || session.session_id,
+      userId: session.user_id,
+      topicId: session.topic_id,
+      topicName: resolvedTopicName,
+      startedAt: new Date(session.started_at || session.created_at),
+      status: session.status || 'active',
+      interactions: [],
+      isDocumentUpload: true,
+    };
+    
+    return activeSession;
+  },
+
   async endSession(sessionId) {
     await checkBackendHealth();
     
@@ -503,6 +531,7 @@ function transformFeedback(response, answer) {
     answerId: answer.id,
     isCorrect: response.is_correct,
     score: response.score || (response.is_correct ? 85 : 45),
+    correctAnswer: response.correct_answer,
     analysis: {
       strengths: response.strengths || [],
       weaknesses: response.weaknesses || [],

@@ -353,6 +353,68 @@ export function LearningProvider({ children }) {
     }
   }, []);
 
+  // Start learning session with uploaded document
+  const startLearningSessionWithUpload = useCallback(async (file, totalQuestions = 5, testType = 'mcq', topicName = null) => {
+    try {
+      const session = await apiService.startSessionWithUpload(file, totalQuestions, testType, topicName);
+      dispatch({ type: ActionTypes.START_SESSION, payload: { session, totalQuestions } });
+
+      // Initialize agent responses to show batch generation is starting
+      dispatch({
+        type: ActionTypes.SET_AGENT_RESPONSES,
+        payload: [
+          { agentType: "query-analysis", status: "processing" },
+          { agentType: "information-retrieval", status: "pending" },
+          { agentType: "question-generation", status: "pending" },
+          { agentType: "feedback", status: "pending" },
+        ],
+      });
+      
+      dispatch({ type: ActionTypes.SET_LOADING_QUESTIONS, payload: true });
+      
+      // Generate all questions at once (will use uploaded document content)
+      const batchResult = await apiService.generateBatchQuestions(totalQuestions, testType);
+      
+      dispatch({ type: ActionTypes.SET_SESSION_QUESTIONS, payload: batchResult.questions });
+      
+      // Update agent statuses from batch result
+      if (batchResult.agentStatuses) {
+        const statuses = batchResult.agentStatuses;
+        dispatch({
+          type: ActionTypes.SET_AGENT_RESPONSES,
+          payload: [
+            { 
+              agentType: "query-analysis", 
+              status: statuses.query_analysis?.status || "completed",
+              processingTime: statuses.query_analysis?.processingTime || 0,
+            },
+            { 
+              agentType: "information-retrieval", 
+              status: statuses.information_retrieval?.status || "completed",
+              processingTime: statuses.information_retrieval?.processingTime || 0,
+            },
+            { 
+              agentType: "question-generation", 
+              status: statuses.question_generation?.status || "completed",
+              processingTime: statuses.question_generation?.processingTime || 0,
+            },
+            { agentType: "feedback", status: "pending" },
+          ],
+        });
+      }
+      
+      // Load adaptivity state
+      const adaptivityState = await apiService.getAdaptivityState();
+      dispatch({ type: ActionTypes.SET_ADAPTIVITY_STATE, payload: adaptivityState });
+      
+    } catch (error) {
+      console.error("Failed to start upload session:", error);
+      dispatch({ type: ActionTypes.SET_ERROR, payload: error.message || "Failed to start session with uploaded document" });
+      dispatch({ type: ActionTypes.SET_LOADING_QUESTIONS, payload: false });
+      throw error; // Re-throw to let caller handle it
+    }
+  }, []);
+
   // End learning session (called when user clicks "Go Home" or "New Session")
   const endLearningSession = useCallback(async () => {
     if (state.currentSession && !state.isSessionComplete) {
@@ -550,6 +612,19 @@ export function LearningProvider({ children }) {
           topic: state.currentQuestion.topic,
         });
         
+        // Enrich feedback with question details for session summary
+        const enrichedFeedback = {
+          ...feedback,
+          questionDetails: {
+            type: state.currentQuestion.type,
+            content: state.currentQuestion.content,
+            options: state.currentQuestion.options || [],
+            correctAnswer: state.currentQuestion.correctAnswer,
+          },
+          userAnswer: answer,
+          userSelectedOptionId: optionId,
+        };
+        
         // Update knowledge gaps if detected
         if (feedback.detectedKnowledgeGaps && feedback.detectedKnowledgeGaps.length > 0) {
           dispatch({ type: ActionTypes.UPDATE_KNOWLEDGE_GAPS, payload: feedback.detectedKnowledgeGaps });
@@ -565,7 +640,7 @@ export function LearningProvider({ children }) {
         }
         
         // Store feedback and check if session is complete
-        dispatch({ type: ActionTypes.ADD_FEEDBACK_AND_ADVANCE, payload: feedback });
+        dispatch({ type: ActionTypes.ADD_FEEDBACK_AND_ADVANCE, payload: enrichedFeedback });
         dispatch({
           type: ActionTypes.UPDATE_AGENT_STATUS,
           payload: { agentType: "feedback", status: "completed" },
@@ -649,6 +724,7 @@ export function LearningProvider({ children }) {
     // Actions
     loadUserProfile,
     startLearningSession,
+    startLearningSessionWithUpload,
     endLearningSession,
     processUserQuery,
     generateQuestion,

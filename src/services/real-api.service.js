@@ -110,6 +110,33 @@ export const sessionsAPI = {
     });
   },
 
+  async startSessionWithUpload(file, topicName = null, targetQuestions = 10, assessmentTypes = ['mcq']) {
+    const token = localStorage.getItem('edusynapse_token');
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    if (topicName) {
+      formData.append('topic_name', topicName);
+    }
+    formData.append('target_questions', targetQuestions.toString());
+    formData.append('assessment_types', assessmentTypes.join(','));
+    
+    const response = await fetch(`${API_BASE_URL}/sessions/upload-start`, {
+      method: 'POST',
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(error.detail || `HTTP error! status: ${response.status}`);
+    }
+    
+    return response.json();
+  },
+
   async getSession(sessionId) {
     return apiRequest(`/sessions/${sessionId}`);
   },

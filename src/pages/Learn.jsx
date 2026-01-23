@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -30,6 +30,8 @@ import {
   TextCursorInput,
   FileText,
   Brain,
+  Upload,
+  X,
 } from "lucide-react";
 import apiService from "@/services/unified-api.service.js";
 
@@ -42,6 +44,7 @@ export const LearnPage = () => {
     state,
     loadUserProfile,
     startLearningSession,
+    startLearningSessionWithUpload,
     endLearningSession,
     generateQuestion,
     submitAnswer,
@@ -55,6 +58,12 @@ export const LearnPage = () => {
   const [questionCount, setQuestionCount] = useState(5);
   const [sessionTime, setSessionTime] = useState(0);
   const [isLoadingTopics, setIsLoadingTopics] = useState(true);
+  
+  // Document upload state
+  const [isUploadMode, setIsUploadMode] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
   // Load topics on mount
   useEffect(() => {
@@ -138,7 +147,61 @@ export const LearnPage = () => {
     selectedTestType,
   ]);
 
+  // Handle file selection
+  const handleFileSelect = (event) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // Validate file type
+      const allowedTypes = [
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/msword',
+        'text/plain'
+      ];
+      const allowedExtensions = ['.pdf', '.docx', '.doc', '.txt'];
+      const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
+      
+      if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
+        alert('Please upload a PDF, Word document (.docx), or text file.');
+        return;
+      }
+      
+      // Validate file size (10MB max)
+      if (file.size > 10 * 1024 * 1024) {
+        alert('File size must be less than 10MB.');
+        return;
+      }
+      
+      setUploadedFile(file);
+    }
+  };
+
+  const handleRemoveFile = () => {
+    setUploadedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   const handleStartSession = async () => {
+    // Handle upload mode
+    if (isUploadMode && uploadedFile) {
+      setIsUploading(true);
+      try {
+        setSessionTime(0);
+        // Use optional custom topic name or let backend detect it
+        const topicName = customTopic.trim() || null;
+        await startLearningSessionWithUpload(uploadedFile, questionCount, selectedTestType, topicName);
+      } catch (error) {
+        console.error('Upload session failed:', error);
+        alert(`Failed to start session: ${error.message}`);
+      } finally {
+        setIsUploading(false);
+      }
+      return;
+    }
+    
+    // Regular session start
     let topicToUse;
     if (isCustomTopic) {
       topicToUse = customTopic;
@@ -161,11 +224,17 @@ export const LearnPage = () => {
   const handleEndSession = async () => {
     await endLearningSession();
     setSessionTime(0);
+    // Reset upload state
+    setUploadedFile(null);
+    setIsUploadMode(false);
   };
 
   const handleStartNewSession = () => {
     endLearningSession();
     setSessionTime(0);
+    // Reset upload state
+    setUploadedFile(null);
+    setIsUploadMode(false);
   };
 
   const handleSubmitAnswer = async (content, modality, selectedOptionId) => {
@@ -260,33 +329,99 @@ export const LearnPage = () => {
 
                   {/* Topic Selection Mode Toggle */}
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Topic</label>
+                    <label className="text-sm font-medium">Topic Source</label>
                     <div className="flex gap-1 p-1 rounded-lg bg-muted/50">
                       <Button
                         type="button"
-                        variant={!isCustomTopic ? "secondary" : "ghost"}
+                        variant={!isCustomTopic && !isUploadMode ? "secondary" : "ghost"}
                         size="sm"
                         className="flex-1 gap-1.5"
-                        onClick={() => setIsCustomTopic(false)}
+                        onClick={() => { setIsCustomTopic(false); setIsUploadMode(false); }}
                       >
                         <BookOpen className="w-3.5 h-3.5" />
                         Course
                       </Button>
                       <Button
                         type="button"
-                        variant={isCustomTopic ? "secondary" : "ghost"}
+                        variant={isCustomTopic && !isUploadMode ? "secondary" : "ghost"}
                         size="sm"
                         className="flex-1 gap-1.5"
-                        onClick={() => setIsCustomTopic(true)}
+                        onClick={() => { setIsCustomTopic(true); setIsUploadMode(false); }}
                       >
                         <Brain className="w-3.5 h-3.5" />
                         Custom
                       </Button>
+                      <Button
+                        type="button"
+                        variant={isUploadMode ? "secondary" : "ghost"}
+                        size="sm"
+                        className="flex-1 gap-1.5"
+                        onClick={() => { setIsUploadMode(true); setIsCustomTopic(false); }}
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        Upload
+                      </Button>
                     </div>
                   </div>
 
-                  {/* Topic Selection or Custom Input */}
-                  {!isCustomTopic ? (
+                  {/* Topic Selection, Custom Input, or File Upload */}
+                  {isUploadMode ? (
+                    <div className="space-y-3">
+                      {/* File Input */}
+                      <div className="space-y-1.5">
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleFileSelect}
+                          accept=".pdf,.docx,.doc,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,text/plain"
+                          className="hidden"
+                        />
+                        {!uploadedFile ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full h-24 border-dashed border-2 flex flex-col gap-2"
+                            onClick={() => fileInputRef.current?.click()}
+                          >
+                            <Upload className="w-6 h-6 text-muted-foreground" />
+                            <span className="text-sm text-muted-foreground">
+                              Click to upload PDF, Word, or Text file
+                            </span>
+                            <span className="text-xs text-muted-foreground/70">
+                              Max 10MB
+                            </span>
+                          </Button>
+                        ) : (
+                          <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 border">
+                            <FileText className="w-5 h-5 text-primary flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{uploadedFile.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {(uploadedFile.size / 1024).toFixed(1)} KB
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 flex-shrink-0"
+                              onClick={handleRemoveFile}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Optional Topic Name Override */}
+                      <Input
+                        value={customTopic}
+                        onChange={(e) => setCustomTopic(e.target.value)}
+                        placeholder="Optional: Override detected topic name..."
+                        className="text-sm"
+                      />
+                    </div>
+                  ) : !isCustomTopic ? (
                     <Select value={selectedTopicId} onValueChange={setSelectedTopicId} disabled={isLoadingTopics}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select a course..." />
@@ -326,11 +461,23 @@ export const LearnPage = () => {
                   {/* Start Button */}
                   <Button 
                     onClick={handleStartSession} 
-                    disabled={isCustomTopic ? !customTopic.trim() : (!selectedTopicId || isLoadingTopics)} 
+                    disabled={
+                      isUploading ||
+                      (isUploadMode ? !uploadedFile : (isCustomTopic ? !customTopic.trim() : (!selectedTopicId || isLoadingTopics)))
+                    } 
                     className="w-full gap-2 mt-2" 
                   >
-                    <Play className="w-4 h-4" />
-                    Start Session
+                    {isUploading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Processing Document...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4" />
+                        {isUploadMode ? "Upload & Start" : "Start Session"}
+                      </>
+                    )}
                   </Button>
                 </div>
               </Card>
