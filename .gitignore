@@ -35,3 +35,5 @@ __pycache__/
 # Environment files (do not commit secrets)
 backend/.env
 .env
+backend/.env.example
+.env.example
