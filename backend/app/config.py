@@ -40,22 +40,15 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     
     # ===========================================
-    # LLM API KEYS (PLACEHOLDERS)
+    # LLM API KEYS
     # ===========================================
-    # OpenAI Configuration
-    openai_api_key: str = Field(default="", description="OpenAI API Key - Add your key here")
-    openai_model: str = "gpt-4o-mini"
-    
     # Google Gemini Configuration
-    google_api_key: str = Field(default="", description="Google Gemini API Key - Add your key here")
-    gemini_model: str = "gemini-1.5-flash"
+    google_api_key: str = Field(default="", description="Google Gemini API Key")
+    gemini_model: str = "gemini-2.5-flash-lite"
     
     # Tavily Search API (Dynamic Fallback)
     tavily_api_key: str = Field(default="", description="Tavily API Key for dynamic content retrieval")
     tavily_search_depth: str = "advanced"  # "basic" or "advanced"
-    
-    # Default LLM Provider
-    default_llm_provider: str = "gemini"  # "openai" or "gemini" - Gemini is primary
     
     # ===========================================
     # CREWAI CONFIGURATION
@@ -115,17 +108,7 @@ settings = get_settings()
 # LLM PROVIDER CONFIGURATION
 # ===========================================
 class LLMConfig:
-    """Configuration for LLM providers"""
-    
-    @staticmethod
-    def get_openai_config():
-        """Get OpenAI configuration"""
-        return {
-            "api_key": settings.openai_api_key,
-            "model": settings.openai_model,
-            "temperature": 0.7,
-            "max_tokens": 2000,
-        }
+    """Configuration for Gemini LLM provider"""
     
     @staticmethod
     def get_gemini_config():
@@ -134,21 +117,17 @@ class LLMConfig:
             "api_key": settings.google_api_key,
             "model": settings.gemini_model,
             "temperature": 0.7,
-            "max_output_tokens": 2000,
+            "max_output_tokens": 8192,
         }
     
     @staticmethod
     def get_active_provider():
         """Get the currently active LLM provider configuration"""
-        if settings.default_llm_provider == "gemini" and settings.google_api_key:
-            return "gemini", LLMConfig.get_gemini_config()
-        elif settings.openai_api_key:
-            return "openai", LLMConfig.get_openai_config()
-        elif settings.google_api_key:
+        if settings.google_api_key:
             return "gemini", LLMConfig.get_gemini_config()
         else:
             raise ValueError(
-                "No LLM API key configured. Please set OPENAI_API_KEY or GOOGLE_API_KEY in .env"
+                "No LLM API key configured. Please set GOOGLE_API_KEY in .env"
             )
 
 

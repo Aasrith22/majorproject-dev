@@ -46,85 +46,31 @@ class EduSynapseCrew:
     
     def _initialize_llm_client(self):
         """
-        Initialize the appropriate LLM client with fallback support
+        Initialize the Gemini LLM client using google-genai SDK
         
-        Priority:
-        1. Default provider (from config)
-        2. Alternative provider (if default fails or hits rate limits)
-        3. None (will use rule-based/template generation)
+        Returns a google.genai.Client instance.
+        Agents use client.aio.models.generate_content() for async calls.
         """
         
         try:
             provider, config = LLMConfig.get_active_provider()
             logger.info(f"[Crew] Using LLM provider: {provider}, model: {config.get('model', 'unknown')}")
             
-            client = None
-            if provider == "openai":
-                client = self._get_openai_client(config)
-            elif provider == "gemini":
-                client = self._get_gemini_client(config)
+            from google import genai
             
-            # If primary provider initialized successfully, return it
-            if client:
-                return client
+            client = genai.Client(api_key=config["api_key"])
+            logger.info(f"[Crew] Gemini client initialized successfully")
+            return client
             
-            # Try fallback to alternative provider
-            logger.warning(f"[Crew] Primary provider {provider} failed, trying alternative...")
-            if provider == "gemini" and settings.openai_api_key:
-                logger.info("[Crew] Attempting fallback to OpenAI")
-                return self._get_openai_client(LLMConfig.get_openai_config())
-            elif provider == "openai" and settings.google_api_key:
-                logger.info("[Crew] Attempting fallback to Gemini")
-                return self._get_gemini_client(LLMConfig.get_gemini_config())
-            
+        except ImportError:
+            logger.error("[Crew] google-genai package not installed. Install with: pip install google-genai")
+            return None
         except ValueError as e:
             logger.warning(f"LLM not configured: {e}. Running in template-only mode.")
             return None
         except Exception as e:
             logger.error(f"Failed to initialize LLM client: {e}")
             return None
-        
-        return None
-    
-    def _get_openai_client(self, config: Dict[str, Any]):
-        """Get OpenAI client"""
-        try:
-            from openai import AsyncOpenAI
-            
-            return AsyncOpenAI(api_key=config["api_key"])
-        except ImportError:
-            logger.warning("OpenAI package not installed")
-            return None
-    
-    def _get_gemini_client(self, config: Dict[str, Any]):
-        """Get Google Gemini client with optimized generation config"""
-        try:
-            import google.generativeai as genai
-            
-            genai.configure(api_key=config["api_key"])
-            
-            # Configure generation settings to prevent truncation
-            generation_config = genai.types.GenerationConfig(
-                max_output_tokens=8192,  # Increased to handle longer JSON responses
-                temperature=0.7,
-            )
-            
-            return genai.GenerativeModel(
-                config["model"],
-                generation_config=generation_config
-            )
-        except ImportError:
-            logger.warning("Google GenerativeAI package not installed")
-            return None
-        except Exception as e:
-            logger.warning(f"Failed to configure Gemini with generation config: {e}")
-            # Fallback to basic configuration
-            try:
-                import google.generativeai as genai
-                genai.configure(api_key=config["api_key"])
-                return genai.GenerativeModel(config["model"])
-            except Exception:
-                return None
     
     async def execute(
         self,
@@ -618,7 +564,7 @@ class EduSynapseCrew:
         """Get status of the crew and all agents"""
         return {
             "llm_configured": self.llm_client is not None,
-            "llm_provider": settings.default_llm_provider,
+            "llm_provider": "gemini",
             "agents": {
                 "query_analysis": {
                     "name": self.query_agent.name,

@@ -29,17 +29,6 @@ from app.config import settings
 router = APIRouter()
 
 
-def _get_llm_client():
-    """Get OpenAI LLM client for document processing"""
-    if settings.openai_api_key:
-        try:
-            from openai import AsyncOpenAI
-            return AsyncOpenAI(api_key=settings.openai_api_key)
-        except Exception as e:
-            logger.warning(f"Failed to initialize OpenAI client: {e}")
-    return None
-
-
 def session_to_response(session: LearningSession) -> SessionResponse:
     """Convert session to response schema"""
     return SessionResponse(
@@ -146,8 +135,8 @@ async def start_session_with_upload(
         raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
     
     # Process the document
-    llm_client = _get_llm_client()
-    doc_processor = DocumentProcessingService(llm_client=llm_client)
+    # Process the document (uses local embeddings, no LLM needed)
+    doc_processor = DocumentProcessingService(llm_client=None)
     
     processing_result = await doc_processor.process_document(
         file_content=file_content,

@@ -433,33 +433,12 @@ Before outputting, verify for EACH question:
 </quality_checklist>'''
 
         try:
-            if hasattr(self.llm_client, 'chat'):
-                logger.info(f"[QuestionGen] Using OpenAI for batch generation ({count} questions)")
-                response = await self.llm_client.chat.completions.create(
-                    model=settings.openai_model,
-                    messages=[
-                        {"role": "system", "content": "You are an expert assessment designer. Output valid JSON only."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=0.7
-                )
-                return self._parse_batch_questions(
-                    response.choices[0].message.content,
-                    preferred_type,
-                    topic,
-                    count
-                )
-            
-            elif hasattr(self.llm_client, 'generate_content'):
-                logger.info(f"[QuestionGen] Using Gemini for batch generation ({count} questions)")
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: self.llm_client.generate_content(
-                        f"{prompt}\n\nIMPORTANT: Respond with valid JSON only. No markdown code blocks. No explanatory text."
-                    )
-                )
+            logger.info(f"[QuestionGen] Using Gemini for batch generation ({count} questions)")
+            response = await self.llm_client.aio.models.generate_content(
+                model=settings.gemini_model,
+                contents=f"{prompt}\n\nIMPORTANT: Respond with valid JSON only. No markdown code blocks. No explanatory text.",
+            )
+            if response and response.text:
                 logger.info(f"[QuestionGen] Gemini batch response received")
                 return self._parse_batch_questions(
                     response.text,
@@ -795,53 +774,28 @@ Before outputting, verify for EACH question:
         
         for attempt in range(max_retries):
             try:
-                if hasattr(self.llm_client, 'chat'):
-                    logger.info(f"[QuestionGen] Using OpenAI-style client (attempt {attempt + 1})")
-                    response = await self.llm_client.chat.completions.create(
-                        model=settings.openai_model,
-                        messages=[
-                            {"role": "system", "content": self.backstory},
-                            {"role": "user", "content": prompt}
-                        ],
-                        response_format={"type": "json_object"}
-                    )
+                logger.info(f"[QuestionGen] Using Gemini client to generate question (attempt {attempt + 1})")
+                response = await self.llm_client.aio.models.generate_content(
+                    model=settings.gemini_model,
+                    contents=f"{prompt}\n\nRespond with valid JSON only, no markdown formatting.",
+                )
+                
+                # Check for valid response
+                if response and response.text:
+                    response_text = response.text.strip()
+                    # Check for rate limit error patterns in response
+                    if 'quota' in response_text.lower() or 'rate limit' in response_text.lower():
+                        raise Exception("Rate limit detected in response")
+                    logger.info(f"[QuestionGen] Gemini response received: {response_text[:200]}")
                     return self._parse_generated_question(
-                        response.choices[0].message.content,
+                        response_text,
                         question_type,
                         difficulty,
                         topic
                     )
-                
-                elif hasattr(self.llm_client, 'generate_content'):
-                    # Gemini-style client - use sync method in async context
-                    logger.info(f"[QuestionGen] Using Gemini client to generate question (attempt {attempt + 1})")
-                    loop = asyncio.get_event_loop()
-                    response = await loop.run_in_executor(
-                        None,
-                        lambda: self.llm_client.generate_content(
-                            f"{prompt}\n\nRespond with valid JSON only, no markdown formatting."
-                        )
-                    )
-                    
-                    # Check for valid response
-                    if response and hasattr(response, 'text') and response.text:
-                        response_text = response.text.strip()
-                        # Check for rate limit error patterns in response
-                        if 'quota' in response_text.lower() or 'rate limit' in response_text.lower():
-                            raise Exception("Rate limit detected in response")
-                        logger.info(f"[QuestionGen] Gemini response received: {response_text[:200]}")
-                        return self._parse_generated_question(
-                            response_text,
-                            question_type,
-                            difficulty,
-                            topic
-                        )
-                    else:
-                        logger.warning(f"[QuestionGen] Empty Gemini response on attempt {attempt + 1}")
-                        raise Exception("Empty Gemini response")
                 else:
-                    logger.warning(f"[QuestionGen] Unknown LLM client type: {type(self.llm_client)}")
-                    break
+                    logger.warning(f"[QuestionGen] Empty Gemini response on attempt {attempt + 1}")
+                    raise Exception("Empty Gemini response")
             
             except Exception as e:
                 error_str = str(e).lower()
@@ -1735,7 +1689,7 @@ Before outputting, verify:
         rubric: Dict[str, Any],
         assessment: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Use LLM to evaluate essay response"""
+        """Use Gemini LLM to evaluate essay response"""
         
         prompt = f"""Evaluate the following student response against the model answer.
 
@@ -1759,45 +1713,20 @@ Evaluate and respond in JSON:
     "knowledge_gaps": ["gap1"],
     "feedback": "Detailed feedback",
     "next_steps": ["step1", "step2"]
-}}"""
+}}
+
+Respond with valid JSON only."""
         
         try:
-            if hasattr(self.llm_client, 'chat'):
-                result = await self.llm_client.chat.completions.create(
-                    model=settings.openai_model,
-                    messages=[
-                        {"role": "system", "content": "You are an expert educational evaluator."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format={"type": "json_object"}
-                )
-                
-                import json
-                data = json.loads(result.choices[0].message.content)
-                
-                return {
-                    "is_correct": data.get("score", 0) > assessment.get("points", 20) * 0.5,
-                    "score": data.get("score", 0),
-                    "correct_answer": model_answer,
-                    "explanation": data.get("feedback", ""),
-                    "conceptual_understanding": data.get("conceptual_understanding", 50),
-                    "misconceptions": data.get("misconceptions", []),
-                    "knowledge_gaps": data.get("knowledge_gaps", []),
-                    "next_steps": data.get("next_steps", []),
-                }
+            result = await self.llm_client.aio.models.generate_content(
+                model=settings.gemini_model,
+                contents=prompt,
+            )
             
-            elif hasattr(self.llm_client, 'generate_content'):
-                # Gemini-style client - use sync method in async context
-                loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(
-                    None,
-                    lambda: self.llm_client.generate_content(
-                        f"{prompt}\n\nRespond with valid JSON only."
-                    )
-                )
-                
+            if result and result.text:
                 import json
-                data = json.loads(result.text)
+                cleaned = self._extract_json_from_response(result.text)
+                data = json.loads(cleaned)
                 
                 return {
                     "is_correct": data.get("score", 0) > assessment.get("points", 20) * 0.5,

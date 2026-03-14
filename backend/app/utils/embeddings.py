@@ -1,6 +1,6 @@
 """
 Embedding Service
-Handles text embedding generation using sentence-transformers or OpenAI fallback
+Handles text embedding generation using sentence-transformers with hash-based fallback
 """
 
 from typing import List, Optional
@@ -21,9 +21,7 @@ class EmbeddingService:
     """Service for generating text embeddings"""
     
     _model = None
-    _openai_client = None
     _initialized = False
-    _use_openai_fallback = False
     
     async def initialize(self):
         """Initialize the embedding model"""
@@ -43,18 +41,6 @@ class EmbeddingService:
             logger.warning("sentence-transformers not installed.")
         except Exception as e:
             logger.warning(f"Failed to load sentence-transformers: {e}")
-        
-        # Fallback to OpenAI embeddings
-        if settings.openai_api_key:
-            try:
-                from openai import OpenAI
-                self._openai_client = OpenAI(api_key=settings.openai_api_key)
-                self._use_openai_fallback = True
-                self._initialized = True
-                logger.info("Using OpenAI embeddings as fallback")
-                return
-            except Exception as e:
-                logger.warning(f"Failed to initialize OpenAI embeddings: {e}")
         
         # Final fallback: simple hash-based embeddings (for testing only)
         logger.warning("Using simple hash-based embeddings (not recommended for production)")
@@ -88,21 +74,6 @@ class EmbeddingService:
                 embedding = self._model.encode(text, convert_to_numpy=True)
                 return embedding.tolist()
             
-            # Use OpenAI embeddings as fallback
-            if self._use_openai_fallback and self._openai_client:
-                try:
-                    response = self._openai_client.embeddings.create(
-                        model="text-embedding-3-small",
-                        input=text,
-                        dimensions=settings.vector_dimensions
-                    )
-                    return response.data[0].embedding
-                except Exception as openai_error:
-                    # On OpenAI error (quota, etc.), disable OpenAI and use hash fallback
-                    logger.warning(f"OpenAI embedding failed, switching to hash fallback: {openai_error}")
-                    self._use_openai_fallback = False
-                    self._openai_client = None
-            
             # Final fallback: simple hash embedding
             return self._simple_hash_embedding(text)
             
@@ -128,21 +99,6 @@ class EmbeddingService:
             if self._model:
                 embeddings = self._model.encode(texts, convert_to_numpy=True)
                 return embeddings.tolist()
-            
-            # Use OpenAI embeddings as fallback
-            if self._use_openai_fallback and self._openai_client:
-                try:
-                    response = self._openai_client.embeddings.create(
-                        model="text-embedding-3-small",
-                        input=texts,
-                        dimensions=settings.vector_dimensions
-                    )
-                    return [item.embedding for item in response.data]
-                except Exception as openai_error:
-                    # On OpenAI error (quota, etc.), disable OpenAI and use hash fallback
-                    logger.warning(f"OpenAI batch embedding failed, switching to hash fallback: {openai_error}")
-                    self._use_openai_fallback = False
-                    self._openai_client = None
             
             # Final fallback: simple hash embeddings
             return [self._simple_hash_embedding(text) for text in texts]

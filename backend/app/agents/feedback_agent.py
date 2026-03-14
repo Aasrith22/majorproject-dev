@@ -356,35 +356,25 @@ class FeedbackAgent:
         query_analysis: Dict[str, Any],
         context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Generate feedback using LLM"""
+        """Generate feedback using Gemini LLM via google.genai SDK"""
         
         prompt = self._build_feedback_prompt(evaluation_result, query_analysis, context)
         
         try:
-            if hasattr(self.llm_client, 'chat'):
-                response = await self.llm_client.chat.completions.create(
-                    model=settings.openai_model,
-                    messages=[
-                        {"role": "system", "content": self.backstory},
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format={"type": "json_object"}
-                )
-                return self._parse_feedback_response(response.choices[0].message.content)
+            response = await self.llm_client.aio.models.generate_content(
+                model=settings.gemini_model,
+                contents=f"{prompt}\n\nRespond with valid JSON only, no markdown formatting.",
+            )
             
-            elif hasattr(self.llm_client, 'generate_content'):
-                # Gemini-style client - use sync method in async context
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: self.llm_client.generate_content(
-                        f"{prompt}\n\nRespond with valid JSON only, no markdown formatting."
-                    )
-                )
-                return self._parse_feedback_response(response.text)
+            if response and response.text:
+                response_text = response.text.strip()
+                logger.info(f"[Feedback] Gemini response received: {response_text[:200]}")
+                return self._parse_feedback_response(response_text)
+            else:
+                logger.warning("[Feedback] Empty Gemini response")
         
         except Exception as e:
-            logger.error(f"LLM feedback generation failed: {e}")
+            logger.error(f"[Feedback] LLM feedback generation failed: {e}")
         
         return self._rule_based_feedback(evaluation_result, query_analysis, context)
     

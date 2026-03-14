@@ -243,7 +243,7 @@ class InformationRetrievalAgent:
         return expanded
     
     async def _llm_query_expansion(self, query: str, topic: str) -> str:
-        """Use LLM to expand search query"""
+        """Use Gemini LLM to expand search query"""
         
         prompt = f"""Expand the following educational search query with related terms and synonyms.
 Keep the expansion focused and relevant to the topic.
@@ -254,22 +254,12 @@ Topic: "{topic}"
 Return only the expanded query string, no explanation."""
 
         try:
-            if hasattr(self.llm_client, 'chat'):
-                response = await self.llm_client.chat.completions.create(
-                    model=settings.openai_model,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=100
-                )
-                return response.choices[0].message.content.strip()
-            
-            elif hasattr(self.llm_client, 'generate_content'):
-                # Gemini-style client - use sync method in async context
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: self.llm_client.generate_content(prompt)
-                )
-                return response.text.strip() if response.text else query
+            response = await self.llm_client.aio.models.generate_content(
+                model=settings.gemini_model,
+                contents=prompt,
+            )
+            if response and response.text:
+                return response.text.strip()
         
         except Exception as e:
             logger.warning(f"LLM query expansion failed: {e}")

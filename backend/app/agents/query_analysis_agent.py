@@ -26,7 +26,7 @@ class QueryAnalysisAgent:
         Initialize the Query Analysis Agent
         
         Args:
-            llm_client: LLM client for analysis (OpenAI or Gemini)
+            llm_client: Gemini LLM client for analysis (google.genai.Client)
         """
         self.llm_client = llm_client
         self.name = "Query Analysis Agent"
@@ -137,54 +137,21 @@ Respond in JSON format."""
         return prompt
     
     async def _call_llm(self, prompt: str) -> str:
-        """Call the LLM with the analysis prompt"""
+        """Call the Gemini LLM with the analysis prompt using google.genai SDK"""
         
         try:
-            if hasattr(self.llm_client, 'chat'):
-                # OpenAI-style client
-                response = await self.llm_client.chat.completions.create(
-                    model=settings.openai_model,
-                    messages=[
-                        {"role": "system", "content": self.backstory},
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format={"type": "json_object"}
-                )
-                return response.choices[0].message.content
+            full_prompt = f"{self.backstory}\n\n{prompt}\n\nIMPORTANT: Respond with valid JSON only, no extra text."
             
-            elif hasattr(self.llm_client, 'generate_content_async'):
-                # Gemini async client
-                response = await self.llm_client.generate_content_async(
-                    f"{self.backstory}\n\n{prompt}\n\nIMPORTANT: Respond with valid JSON only, no extra text."
-                )
-                # Check if response has candidates
-                if hasattr(response, 'text') and response.text:
-                    return response.text
-                elif hasattr(response, 'candidates') and response.candidates:
-                    return response.candidates[0].content.parts[0].text
-                else:
-                    logger.warning(f"[QueryAnalysis] Empty Gemini response")
-                    return "{}"
+            response = await self.llm_client.aio.models.generate_content(
+                model=settings.gemini_model,
+                contents=full_prompt,
+            )
             
-            elif hasattr(self.llm_client, 'generate_content'):
-                # Gemini sync client - use in executor
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: self.llm_client.generate_content(
-                        f"{self.backstory}\n\n{prompt}\n\nIMPORTANT: Respond with valid JSON only, no extra text."
-                    )
-                )
-                # Check if response has text
-                if hasattr(response, 'text') and response.text:
-                    return response.text
-                elif hasattr(response, 'candidates') and response.candidates:
-                    return response.candidates[0].content.parts[0].text
-                else:
-                    logger.warning(f"[QueryAnalysis] Empty Gemini response")
-                    return "{}"
-            
-            return "{}"
+            if response and response.text:
+                return response.text
+            else:
+                logger.warning(f"[QueryAnalysis] Empty Gemini response")
+                return "{}"
             
         except Exception as e:
             logger.error(f"[QueryAnalysis] LLM call failed: {e}", exc_info=True)
